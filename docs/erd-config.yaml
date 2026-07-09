@@ -1,0 +1,75 @@
+app_label: django_pim
+groups:
+  - name: core-products
+    title: "Core Products"
+    models:
+      - Product
+      - RealProduct
+      - ProductSimple
+      - ProductConfigurable
+      - ProductBundle
+      - ProductCustom
+      - Channel
+
+  - name: features-attributes
+    title: "Features & Attributes"
+    models:
+      - Feature
+      - FeatureSet
+      - FeatureInFeatureSet
+      - Attribute
+      - AttributeModifier
+      - AttributesGroup
+      - ProductAttribute
+      - ProductLinkToFeature
+      - ProductAttributeImage
+
+  - name: categories
+    title: "Categories"
+    models:
+      - ProductCategory
+      - ProductInCategory
+      - ProductCategoryPicture
+
+  - name: media
+    title: "Media"
+    models:
+      - Picture
+      - Thumb
+      - PictureThumb
+      - PictureDownloadUrl
+      - ProductPicture
+      - AttributePicture
+      - Video
+      - ProductVideo
+      - ProductAttributeCustomImage
+
+  - name: files
+    title: "Files & Downloads"
+    models:
+      - Files
+      - FilesCategory
+      - FilesDownloadUrl
+      - ProductFile
+
+  - name: bundles-configurable
+    title: "Bundles & Configurable"
+    models:
+      - BundleSection
+      - BundleLink
+      - ConfigurableLink
+
+  - name: pricing-links
+    title: "Pricing & Links"
+    models:
+      - ProductPrice
+      - ProductLink
+      - ProductLinkType
+
+  - name: quality-gaps
+    title: "Quality Gaps"
+    models:
+      - GapDefinition
+      - GapFinding
+      - GapExemption
+      - PimSettings

@@ -1,0 +1,2 @@
+from .product_custom import ProductCustom
+from .product_custom_image import ProductAttributeCustomImage

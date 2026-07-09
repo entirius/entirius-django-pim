@@ -1,0 +1,279 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+"""
+FeatureSet service layer for business logic.
+
+This module contains business logic for feature set operations,
+isolated from API and model layers.
+"""
+
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Q, QuerySet
+
+from ..models import AttributesGroup, Channel, Feature, FeatureInFeatureSet, FeatureSet
+from . import gap_rule_service
+
+# Maps API ordering params to actual DB field paths.
+ORDERING_MAP: dict[str, str] = {
+    "idx": "idx",
+    "-idx": "-idx",
+    "name": "name",
+    "-name": "-name",
+    "is_default": "is_default",
+    "-is_default": "-is_default",
+}
+
+FEATURE_IN_SET_ORDERING_MAP: dict[str, str] = {
+    "position": "position",
+    "-position": "-position",
+}
+
+
+def list_feature_sets(
+    channel_idx: str | None = None,
+    search: str | None = None,
+    is_default: bool | None = None,
+    ordering: str | None = None,
+    limit: int | None = None,
+    annotate_counts: bool = True,
+) -> QuerySet[FeatureSet]:
+    """
+    List feature sets with optional filtering.
+
+    Args:
+        channel_idx: Channel identifier for validation (optional)
+        search: Search term for idx/name filtering (case-insensitive, optional)
+        is_default: Filter by default status (optional)
+        ordering: Field to order by (optional, default: idx)
+        limit: Maximum number of feature sets to return (optional)
+        annotate_counts: Whether to annotate with feature counts (default: True)
+
+    Raises:
+        Channel.DoesNotExist: If channel_idx provided but does not exist
+    """
+    # Validate channel exists if provided
+    if channel_idx is not None:
+        Channel.objects.get(idx=channel_idx)
+
+    # Start with base queryset
+    queryset = FeatureSet.objects.all()
+
+    # Annotate with feature count for efficient counting
+    if annotate_counts:
+        queryset = queryset.annotate(feature_count=Count("features"))
+
+    # Apply search filter (FeatureSet has plain CharField name)
+    if search:
+        queryset = queryset.filter(Q(idx__icontains=search) | Q(name__icontains=search))
+
+    # Apply is_default filter
+    if is_default is not None:
+        queryset = queryset.filter(is_default=is_default)
+
+    # Apply ordering
+    order_field = ORDERING_MAP.get(ordering, "idx") if ordering else "idx"
+    queryset = queryset.order_by(order_field)
+
+    # Apply limit if specified
+    if limit is not None:
+        queryset = queryset[:limit]
+
+    return queryset
+
+
+def get_feature_set_by_idx(idx: str, channel_idx: str | None = None) -> FeatureSet:
+    """
+    Get a single feature set by idx.
+
+    Business rules:
+    - Returns exactly one feature set matching idx
+    - Validates shop if channel_idx provided
+    - Annotates with feature count
+    - idx lookup is case-sensitive
+
+    Args:
+        idx: FeatureSet identifier (idx field)
+        channel_idx: Channel identifier for validation (optional)
+
+    Returns:
+        FeatureSet object with feature_count annotation
+
+    Raises:
+        Channel.DoesNotExist: If channel_idx provided but does not exist
+        FeatureSet.DoesNotExist: If feature set with idx not found
+        FeatureSet.MultipleObjectsReturned: If multiple feature sets match (data error)
+    """
+    # Validate channel exists if provided
+    if channel_idx is not None:
+        Channel.objects.get(idx=channel_idx)
+
+    # Query single feature set with feature count
+    feature_set = FeatureSet.objects.annotate(feature_count=Count("features")).get(idx=idx)
+
+    return feature_set
+
+
+def list_features_in_feature_set(
+    feature_set_idx: str, channel_idx: str | None = None, ordering: str | None = None, limit: int | None = None
+) -> QuerySet[FeatureInFeatureSet]:
+    """
+    List features within a feature set, ordered by position.
+
+    Business rules:
+    - Returns features ordered by position within the set
+    - Uses select_related for Feature optimization
+    - Default ordering by position (ascending)
+    - Channel validation if channel_idx provided
+
+    Args:
+        feature_set_idx: FeatureSet identifier (idx field)
+        channel_idx: Channel identifier for validation (optional)
+        ordering: Field to order by (optional, default: position)
+        limit: Maximum number of features to return (optional)
+
+    Returns:
+        QuerySet of FeatureInFeatureSet objects with related Feature
+
+    Raises:
+        Channel.DoesNotExist: If channel_idx provided but does not exist
+        FeatureSet.DoesNotExist: If feature set not found
+    """
+    # Validate channel exists if provided
+    if channel_idx is not None:
+        Channel.objects.get(idx=channel_idx)
+
+    # Get the feature set (validates it exists)
+    feature_set = FeatureSet.objects.get(idx=feature_set_idx)
+
+    # Query features in set with optimization
+    queryset = FeatureInFeatureSet.objects.filter(feature_set=feature_set).select_related("feature", "attributes_group")
+
+    # Apply ordering
+    order_field = FEATURE_IN_SET_ORDERING_MAP.get(ordering, "position") if ordering else "position"
+    queryset = queryset.order_by(order_field)
+
+    # Apply limit if specified
+    if limit is not None:
+        queryset = queryset[:limit]
+
+    return queryset
+
+
+def _enforce_single_default(exclude_pk: int | None = None) -> None:
+    """Demote all other feature sets when setting a new default."""
+    qs = FeatureSet.objects.filter(is_default=True)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    qs.update(is_default=False)
+
+
+def create_feature_set(idx: str, name: str = "", desc: str = "", is_default: bool = False) -> FeatureSet:
+    """Create a new feature set. Raises ValueError on validation errors."""
+    try:
+        with transaction.atomic():
+            if is_default:
+                _enforce_single_default()
+            fs = FeatureSet(idx=idx, name=name, desc=desc, is_default=is_default)
+            fs.save()
+        if is_default:
+            # Default identity changed — `feature_set_default` outcomes shift catalogue-wide.
+            gap_rule_service.mark_rules_changed()
+        return fs
+    except IntegrityError:
+        raise ValueError(f"Feature set with idx '{idx}' already exists") from None
+
+
+def update_feature_set(idx: str, **fields: object) -> FeatureSet:
+    """Update a feature set by idx. Only provided non-None fields are updated."""
+    fs = FeatureSet.objects.get(idx=idx)
+    was_default = fs.is_default
+    for field, value in fields.items():
+        if value is not None:
+            setattr(fs, field, value)
+    with transaction.atomic():
+        if fs.is_default:
+            _enforce_single_default(exclude_pk=fs.pk)
+        fs.save()
+    if fs.is_default != was_default:
+        # Default identity changed — `feature_set_default` outcomes shift catalogue-wide,
+        # so prompt a recompute (same semantics as the gaps/settings/ skip-default toggle).
+        gap_rule_service.mark_rules_changed()
+    return FeatureSet.objects.annotate(feature_count=Count("features")).get(pk=fs.pk)
+
+
+def delete_feature_set(idx: str) -> dict:
+    """Delete a feature set. Returns count of deleted objects by model."""
+    fs = FeatureSet.objects.get(idx=idx)
+    _, deleted_detail = fs.delete()
+    result = {}
+    for key, count in deleted_detail.items():
+        simple_name = key.split(".")[-1] if "." in key else key
+        result[simple_name] = count
+    return result
+
+
+def bulk_add_features_to_set(feature_set_idx: str, features: list[dict]) -> list[FeatureInFeatureSet]:
+    """Add features to a set. Each dict has 'feature_idx' and optional 'position'."""
+    fs = FeatureSet.objects.get(idx=feature_set_idx)
+    results = []
+    for entry in features:
+        feature = Feature.objects.get(idx=entry["feature_idx"])
+        position = entry.get("position") or 500
+        group = None
+        if group_idx := entry.get("attributes_group_idx"):
+            group = AttributesGroup.objects.get(idx=group_idx)
+        fifs = FeatureInFeatureSet(feature_set=fs, feature=feature, position=position, attributes_group=group)
+        try:
+            with transaction.atomic():
+                fifs.save()
+        except IntegrityError:
+            raise ValueError(f"Feature '{entry['feature_idx']}' already in set '{feature_set_idx}'") from None
+        results.append(fifs)
+    return results
+
+
+def reorder_features_in_set(feature_set_idx: str, features: list[dict]) -> int:
+    """
+    Batch update positions and group assignments for features in a set.
+
+    Args:
+        feature_set_idx: FeatureSet identifier.
+        features: List of dicts with feature_idx, position, and optional attributes_group_idx.
+
+    Returns:
+        Number of entries updated.
+
+    Raises:
+        FeatureSet.DoesNotExist: If feature set not found.
+        Feature.DoesNotExist: If any feature not found.
+        AttributesGroup.DoesNotExist: If any group not found.
+    """
+    fs = FeatureSet.objects.get(idx=feature_set_idx)
+    entries_to_update = []
+
+    for entry in features:
+        fifs = FeatureInFeatureSet.objects.get(feature_set=fs, feature__idx=entry["feature_idx"])
+        fifs.position = entry["position"]
+
+        if "attributes_group_idx" in entry:
+            group_idx = entry["attributes_group_idx"]
+            if group_idx is not None:
+                fifs.attributes_group = AttributesGroup.objects.get(idx=group_idx)
+            else:
+                fifs.attributes_group = None
+
+        entries_to_update.append(fifs)
+
+    if entries_to_update:
+        FeatureInFeatureSet.objects.bulk_update(entries_to_update, ["position", "attributes_group"])
+
+    return len(entries_to_update)
+
+
+def bulk_remove_features_from_set(feature_set_idx: str, feature_idxs: list[str]) -> int:
+    """Remove features from a set. Returns count of removed entries."""
+    fs = FeatureSet.objects.get(idx=feature_set_idx)
+    deleted_count, _ = FeatureInFeatureSet.objects.filter(feature_set=fs, feature__idx__in=feature_idxs).delete()
+    return deleted_count

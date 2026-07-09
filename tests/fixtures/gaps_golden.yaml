@@ -1,0 +1,717 @@
+- model: django_regional.language
+  pk: 1
+  fields:
+    iso2: EN
+    iso3: ENG
+    name_en: ''
+    name_pl: ''
+    name_source: ''
+- model: django_regional.language
+  pk: 2
+  fields:
+    iso2: PL
+    iso3: POL
+    name_en: ''
+    name_pl: ''
+    name_source: ''
+- model: django_regional.currency
+  pk: 3
+  fields:
+    iso3: EUR
+    name_en: ''
+    name_pl: ''
+    symbol: €
+- model: django_pim.channel
+  pk: 1
+  fields:
+    idx: golden-default
+    name: Golden Default
+    default_language: 1
+    default_currency: 3
+    is_default: true
+    inheritance_enabled: true
+    default_inheritance_flags: []
+    languages:
+    - 1
+    - 2
+    currencies:
+    - 3
+- model: django_pim.channel
+  pk: 2
+  fields:
+    idx: golden-sec
+    name: Golden Secondary
+    default_language: 1
+    default_currency: 3
+    is_default: false
+    inheritance_enabled: true
+    default_inheritance_flags: []
+    languages:
+    - 1
+    currencies:
+    - 3
+- model: django_pim.feature
+  pk: 3
+  fields:
+    scope: 1
+    idx: golden-desc
+    magento_idx: golden_desc
+    magento_pk: null
+    name_t9n:
+      en: Description
+    desc: ''
+    is_required: false
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    is_for_customization: false
+    exclude_from_inheritance: false
+    has_visual_asset: false
+    is_seo: false
+    extra_value: {}
+    feature_type: 6
+    frontend_input_type: 0
+    filter_type: 0
+    display_order: 10
+- model: django_pim.feature
+  pk: 4
+  fields:
+    scope: 3
+    idx: golden-material
+    magento_idx: golden_material
+    magento_pk: null
+    name_t9n:
+      en: Material
+    desc: ''
+    is_required: false
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    is_for_customization: false
+    exclude_from_inheritance: false
+    has_visual_asset: false
+    is_seo: false
+    extra_value: {}
+    feature_type: 3
+    frontend_input_type: 0
+    filter_type: 0
+    display_order: 20
+- model: django_pim.feature
+  pk: 5
+  fields:
+    scope: 3
+    idx: golden-tags
+    magento_idx: golden_tags
+    magento_pk: null
+    name_t9n:
+      en: Tags
+    desc: ''
+    is_required: false
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    is_for_customization: false
+    exclude_from_inheritance: false
+    has_visual_asset: false
+    is_seo: false
+    extra_value: {}
+    feature_type: 8
+    frontend_input_type: 0
+    filter_type: 0
+    display_order: 30
+- model: django_pim.feature
+  pk: 6
+  fields:
+    scope: 3
+    idx: golden-weight
+    magento_idx: golden_weight
+    magento_pk: null
+    name_t9n:
+      en: Weight
+    desc: ''
+    is_required: false
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    is_for_customization: false
+    exclude_from_inheritance: false
+    has_visual_asset: false
+    is_seo: false
+    extra_value: {}
+    feature_type: 2
+    frontend_input_type: 0
+    filter_type: 0
+    display_order: 40
+- model: django_pim.featureset
+  pk: 1
+  fields:
+    idx: golden-fs-empty
+    name: Golden FS Empty
+    desc: ''
+    magento_idx: null
+    magento_pk: null
+    is_default: false
+- model: django_pim.featureset
+  pk: 2
+  fields:
+    idx: golden-fs-full
+    name: Golden FS Full
+    desc: ''
+    magento_idx: null
+    magento_pk: null
+    is_default: false
+- model: django_pim.featureset
+  pk: 3
+  fields:
+    idx: golden-fs-default
+    name: Golden FS Default
+    desc: ''
+    magento_idx: null
+    magento_pk: null
+    is_default: true
+- model: django_pim.featureinfeatureset
+  pk: 1
+  fields:
+    feature_set: 2
+    feature: 4
+    attributes_group: null
+    position: 20
+- model: django_pim.featureinfeatureset
+  pk: 2
+  fields:
+    feature_set: 2
+    feature: 5
+    attributes_group: null
+    position: 30
+- model: django_pim.featureinfeatureset
+  pk: 3
+  fields:
+    feature_set: 2
+    feature: 6
+    attributes_group: null
+    position: 40
+- model: django_pim.attribute
+  pk: 1
+  fields:
+    feature: 5
+    idx: golden-tag-a
+    extension: null
+    magento_idx: golden_tag_a
+    magento_pk: null
+    name_t9n:
+      en: Tag A
+    desc: ''
+    display_order: 100
+    group: null
+- model: django_pim.gapdefinition
+  pk: 1
+  fields:
+    created_at: 2026-06-10 20:33:16.236493+00:00
+    modified_at: 2026-06-10 20:33:16.236507+00:00
+    key: golden-desc-present
+    check_key: feature_present
+    params:
+      feature_idx: golden-desc
+    languages:
+    - en
+    channels: null
+    severity: critical
+    label_t9n:
+      en: Missing description
+    active: true
+    display_order: 10
+- model: django_pim.gapdefinition
+  pk: 2
+  fields:
+    created_at: 2026-06-10 20:33:16.239521+00:00
+    modified_at: 2026-06-10 20:33:16.239533+00:00
+    key: golden-desc-min
+    check_key: feature_min_length
+    params:
+      min_length: 120
+      feature_idx: golden-desc
+    languages:
+    - en
+    channels: null
+    severity: warning
+    label_t9n:
+      en: Description too short
+    active: true
+    display_order: 20
+- model: django_pim.gapdefinition
+  pk: 3
+  fields:
+    created_at: 2026-06-10 20:33:16.242364+00:00
+    modified_at: 2026-06-10 20:33:16.242376+00:00
+    key: golden-material-present
+    check_key: feature_present
+    params:
+      feature_idx: golden-material
+    languages:
+    - en
+    channels: null
+    severity: critical
+    label_t9n:
+      en: Missing material
+    active: true
+    display_order: 30
+- model: django_pim.gapdefinition
+  pk: 4
+  fields:
+    created_at: 2026-06-10 20:33:16.245097+00:00
+    modified_at: 2026-06-10 20:33:16.245108+00:00
+    key: golden-tags-present
+    check_key: feature_present
+    params:
+      feature_idx: golden-tags
+    languages:
+    - en
+    channels: null
+    severity: warning
+    label_t9n:
+      en: Missing tags
+    active: true
+    display_order: 40
+- model: django_pim.gapdefinition
+  pk: 5
+  fields:
+    created_at: 2026-06-10 20:33:16.247814+00:00
+    modified_at: 2026-06-10 20:33:16.247825+00:00
+    key: golden-weight-present
+    check_key: feature_present
+    params:
+      feature_idx: golden-weight
+    languages:
+    - en
+    channels: null
+    severity: warning
+    label_t9n:
+      en: Missing weight
+    active: true
+    display_order: 50
+- model: django_pim.gapdefinition
+  pk: 6
+  fields:
+    created_at: 2026-06-10 20:33:16.250685+00:00
+    modified_at: 2026-06-10 20:33:16.250696+00:00
+    key: golden-main-picture
+    check_key: picture_present
+    params:
+      role: main
+    languages: null
+    channels: null
+    severity: critical
+    label_t9n:
+      en: Missing main picture
+    active: true
+    display_order: 60
+- model: django_pim.gapdefinition
+  pk: 7
+  fields:
+    created_at: 2026-06-10 20:33:16.253583+00:00
+    modified_at: 2026-06-10 20:33:16.253597+00:00
+    key: golden-featureset-default
+    check_key: feature_set_default
+    params: {}
+    languages: null
+    channels: null
+    severity: critical
+    label_t9n:
+      en: Product on default feature set
+    active: true
+    display_order: 5
+- model: django_pim.realproduct
+  pk: 1
+  fields:
+    sku: p-missing-desc
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.255096+00:00
+- model: django_pim.product
+  pk: 1
+  fields:
+    product_class: 1
+    real_product: 1
+    shop: 2
+    feature_set: 1
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.258029+00:00
+    db_modified: 2026-06-10 20:33:16.258039+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.realproduct
+  pk: 2
+  fields:
+    sku: p-desc-ok
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.261086+00:00
+- model: django_pim.product
+  pk: 2
+  fields:
+    product_class: 1
+    real_product: 2
+    shop: 2
+    feature_set: 1
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.262223+00:00
+    db_modified: 2026-06-10 20:33:16.262232+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.productattribute
+  pk: 1
+  fields:
+    product: 2
+    feature: 3
+    attribute: null
+    value_bool: null
+    value_decimal: null
+    value_datetime: null
+    overridden_langs: []
+    value_txt: null
+    value_txt_t9n:
+      en: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    value_json: null
+    updated_at: 2026-06-10 20:33:16.263575+00:00
+- model: django_pim.realproduct
+  pk: 3
+  fields:
+    sku: p-short-desc
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.266094+00:00
+- model: django_pim.product
+  pk: 3
+  fields:
+    product_class: 1
+    real_product: 3
+    shop: 2
+    feature_set: 1
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.267080+00:00
+    db_modified: 2026-06-10 20:33:16.267097+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.productattribute
+  pk: 2
+  fields:
+    product: 3
+    feature: 3
+    attribute: null
+    value_bool: null
+    value_decimal: null
+    value_datetime: null
+    overridden_langs: []
+    value_txt: null
+    value_txt_t9n:
+      en: abc
+    value_json: null
+    updated_at: 2026-06-10 20:33:16.268143+00:00
+- model: django_pim.realproduct
+  pk: 4
+  fields:
+    sku: p-custom
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.269016+00:00
+- model: django_pim.product
+  pk: 4
+  fields:
+    product_class: 4
+    real_product: 4
+    shop: 2
+    feature_set: 1
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.270038+00:00
+    db_modified: 2026-06-10 20:33:16.270047+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.realproduct
+  pk: 5
+  fields:
+    sku: p-multi-empty
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.270985+00:00
+- model: django_pim.product
+  pk: 5
+  fields:
+    product_class: 1
+    real_product: 5
+    shop: 2
+    feature_set: 2
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.271929+00:00
+    db_modified: 2026-06-10 20:33:16.271938+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.realproduct
+  pk: 6
+  fields:
+    sku: p-multi-filled
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.272886+00:00
+- model: django_pim.product
+  pk: 6
+  fields:
+    product_class: 1
+    real_product: 6
+    shop: 2
+    feature_set: 2
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.273838+00:00
+    db_modified: 2026-06-10 20:33:16.273847+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.productattribute
+  pk: 3
+  fields:
+    product: 6
+    feature: 5
+    attribute: 1
+    value_bool: null
+    value_decimal: null
+    value_datetime: null
+    overridden_langs: []
+    value_txt: null
+    value_txt_t9n: null
+    value_json: null
+    updated_at: 2026-06-10 20:33:16.279765+00:00
+- model: django_pim.realproduct
+  pk: 7
+  fields:
+    sku: p-decimal-zero
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.280717+00:00
+- model: django_pim.product
+  pk: 7
+  fields:
+    product_class: 1
+    real_product: 7
+    shop: 2
+    feature_set: 2
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.281666+00:00
+    db_modified: 2026-06-10 20:33:16.281675+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.productattribute
+  pk: 4
+  fields:
+    product: 7
+    feature: 6
+    attribute: null
+    value_bool: null
+    value_decimal: '0.000000'
+    value_datetime: null
+    overridden_langs: []
+    value_txt: null
+    value_txt_t9n: null
+    value_json: null
+    updated_at: 2026-06-10 20:33:16.282711+00:00
+- model: django_pim.realproduct
+  pk: 8
+  fields:
+    sku: p-decimal-missing
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.283747+00:00
+- model: django_pim.product
+  pk: 8
+  fields:
+    product_class: 1
+    real_product: 8
+    shop: 2
+    feature_set: 2
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.284777+00:00
+    db_modified: 2026-06-10 20:33:16.284786+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.realproduct
+  pk: 9
+  fields:
+    sku: p-inherit
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.285773+00:00
+- model: django_pim.product
+  pk: 9
+  fields:
+    product_class: 1
+    real_product: 9
+    shop: 1
+    feature_set: 2
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.286730+00:00
+    db_modified: 2026-06-10 20:33:16.286739+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.productattribute
+  pk: 5
+  fields:
+    product: 9
+    feature: 4
+    attribute: null
+    value_bool: null
+    value_decimal: null
+    value_datetime: null
+    overridden_langs: []
+    value_txt: Solid oak
+    value_txt_t9n: null
+    value_json: null
+    updated_at: 2026-06-10 20:33:16.287757+00:00
+- model: django_pim.product
+  pk: 10
+  fields:
+    product_class: 1
+    real_product: 9
+    shop: 2
+    feature_set: 2
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: true
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.288917+00:00
+    db_modified: 2026-06-10 20:33:16.288926+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null
+- model: django_pim.realproduct
+  pk: 10
+  fields:
+    sku: p-on-default
+    ean: null
+    kind_of_product: 0
+    weight: null
+    width: null
+    height: null
+    deep: null
+    updated_at: 2026-06-10 20:33:16.290171+00:00
+- model: django_pim.product
+  pk: 11
+  fields:
+    product_class: 1
+    real_product: 10
+    shop: 2
+    feature_set: 3
+    visibility: 0
+    magento_pk: null
+    updated_at: null
+    is_enabled: true
+    inherit_attributes: false
+    inherit_descriptions: false
+    inherit_images: false
+    db_created: 2026-06-10 20:33:16.291540+00:00
+    db_modified: 2026-06-10 20:33:16.291551+00:00
+    gap_worst_severity: null
+    gap_count: 0
+    gap_evaluated_at: null

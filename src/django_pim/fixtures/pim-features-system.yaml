@@ -1,0 +1,109 @@
+- model: django_pim.feature
+  pk: 1
+  fields:
+    scope: 1
+    idx: name
+    magento_idx: name
+    name_t9n:
+      en: Name
+      pl: Nazwa
+    is_required: true
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    feature_type: 6
+    frontend_input_type: 0
+    display_order: 1
+    features_sets: [ ]
+- model: django_pim.feature
+  pk: 2
+  fields:
+    scope: 1
+    idx: short_description
+    magento_idx: short_description
+    name_t9n:
+      en: Description Short
+      pl: Opis skrócony
+    is_required: false
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    feature_type: 6
+    frontend_input_type: 0
+    display_order: 2
+    features_sets: [ ]
+- model: django_pim.feature
+  pk: 3
+  fields:
+    scope: 1
+    idx: description
+    magento_idx: description
+    name_t9n:
+      en: Description
+      pl: Opis
+    is_required: false
+    is_visible: true
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    feature_type: 6
+    frontend_input_type: 0
+    display_order: 3
+    features_sets: [ ]
+- model: django_pim.feature
+  pk: 4
+  fields:
+    scope: 1
+    idx: url_key
+    magento_idx: url_key
+    name_t9n:
+      en: Url key
+      pl: Url key
+    is_required: false
+    is_visible: false
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    feature_type: 6
+    frontend_input_type: 0
+    display_order: 4
+    features_sets: [ ]
+- model: django_pim.feature
+  pk: 5
+  fields:
+    scope: 1
+    idx: size_table
+    magento_idx: size_table
+    name_t9n:
+      en: Size table
+      pl: Rozmiarówka
+    is_required: false
+    is_visible: false
+    is_filterable: false
+    is_searchable: true
+    is_comparable: false
+    feature_type: 9
+    frontend_input_type: 0
+    display_order: 5
+    features_sets: [ ]
+- model: django_pim.feature
+  pk: 6
+  fields:
+    scope: 1
+    idx: rich_content
+    magento_idx: rich_content
+    name_t9n:
+      en: Rich Content
+      pl: Rich Content
+    is_required: false
+    is_visible: false
+    is_filterable: false
+    is_searchable: false
+    is_comparable: false
+    feature_type: 9
+    frontend_input_type: 0
+    display_order: 6
+    features_sets: [ ]
+

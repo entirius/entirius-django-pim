@@ -1,0 +1,1 @@
+from .product_configurable import ProductConfigurableManager
