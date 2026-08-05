@@ -1,6 +1,6 @@
 [project]
 name = "entirius-django-pim"
-version = "3.0.0"
+version = "3.1.0"
 description = "PIM (Product Information Management) Django module for the Volkanos ecommerce platform"
 authors = [{ name = "Entirius" }]
 readme = "README.md"
