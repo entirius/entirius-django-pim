@@ -7,7 +7,7 @@ import warnings
 from datetime import datetime
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django_regional.models import Language
@@ -42,6 +42,8 @@ from django_pim.models import (
     ProductInCategory,
     ProductPicture,
     ProductSimple,
+    ProductVariantGroup,
+    ProductVariantGroupProduct,
     ProductVideo,
     ProductVisibilityEnum,
     RealProduct,
@@ -63,13 +65,7 @@ class DjangoPimRepository(ProcessLoggerMixin):
     feature_set_default: FeatureSet
     last_feature_position_in_default_feature_set: int = 0
     shop: Shop
-    features_cache: dict[str, Feature] = {}
-    attributes_cache: dict[str, dict[str, Attribute]] = {}
-    products_cache: dict[str, Product] = {}
-    feature_set_magento_cache: dict[int, FeatureSet] = {}
-    products_magento_cache: dict[int, Product] = {}
-    features_magento_cache: dict[int, Feature] = {}
-    # attributes_magento_cache: dict[str, dict[str, Attribute]] = {}
+    # Caches initialized in __init__ (instance-level, not shared between instances)
     db_connect: DbConnect
     BULK_BATCH_SIZE: int = 1000
 
@@ -82,9 +78,25 @@ class DjangoPimRepository(ProcessLoggerMixin):
         self.feature_set_default, _ = FeatureSet.objects.get_or_create(idx="default")
         self.db_connect = DbConnect()
         self.shop = None
+        self.features_cache: dict[str, Feature] = {}
+        self.attributes_cache: dict[str, dict[str, Attribute]] = {}
+        self.products_cache: dict[tuple[str, int], Product] = {}
+        self.feature_set_magento_cache: dict[int, FeatureSet] = {}
+        self.products_magento_cache: dict[int, Product] = {}
+        self.features_magento_cache: dict[int, Feature] = {}
 
     def set_shop(self, channel_idx: str):
-        self.shop = Shop.objects.filter(idx=channel_idx).first()
+        shop = Shop.objects.filter(idx=channel_idx).first()
+        if shop is None:
+            # Leaving self.shop None turns every `filter(shop=self.shop)` below into
+            # `shop_id IS NULL`: reads return nothing and the variant-group full replace
+            # deletes nothing, then fails on insert. Fail here instead, at the choke point.
+            raise ValueError(f"Channel with idx={channel_idx!r} does not exist")
+        self.shop = shop
+        # Both product caches are shop-scoped but keyed without the shop, so a stale
+        # entry would serve the previous shop's Product for the same SKU / magento_pk.
+        self.products_cache.clear()
+        self.products_magento_cache.clear()
 
     def diff_update(self, entity, attribute, data, need_save: list):
         if getattr(entity, attribute) != data:
@@ -291,12 +303,15 @@ class DjangoPimRepository(ProcessLoggerMixin):
         return created, to_update, skipped_count
 
     def get_product(self, sku: str, product_class: int = ProductClassEnum.ProductSimple) -> Product | None:
+        # product_class belongs in the key: the query filters on it, so caching by SKU
+        # alone returns the Simple product for a later Bundle lookup of the same SKU.
+        cache_key = (sku, product_class)
         try:
-            if sku not in self.products_cache:
-                self.products_cache[sku] = Product.objects.get(
+            if cache_key not in self.products_cache:
+                self.products_cache[cache_key] = Product.objects.get(
                     shop=self.shop, real_product__sku=sku, product_class=product_class
                 )
-            return self.products_cache[sku]
+            return self.products_cache[cache_key]
         except ObjectDoesNotExist:
             self.logger.set_code(None)
             self.logger.add_log_param("sku", sku)
@@ -1087,16 +1102,19 @@ class DjangoPimRepository(ProcessLoggerMixin):
         self.logger.delete_log_param("category_idx")
         return pc
 
-    def product_category_bulk_update_or_create(self, products_categories: dict[str, ProductInCategory]) -> None:
+    def product_category_bulk_update_or_create(
+        self, products_categories: dict[str, ProductInCategory], update_position: bool = True
+    ) -> None:
         create = products_categories
 
+        fields = ["position", "updated_at"] if update_position else ["updated_at"]
         self.logger.set_db_operation("BULK_UPDATE_OR_CREATE", self.name, "ProductInCategory")
         ProductInCategory.objects.bulk_create(
             create.values(),
             batch_size=self.BULK_BATCH_SIZE,
             update_conflicts=True,
             unique_fields=["product", "category"],
-            update_fields=["position", "updated_at"],
+            update_fields=fields,
         )
         self.logger.set_code(None)
         self.logger.info(f"ProductInCategory created in bulk: {len(create)}")
@@ -1141,6 +1159,70 @@ class DjangoPimRepository(ProcessLoggerMixin):
             return created_config_links
 
         return None
+
+    def product_variant_group_bulk_cleanup_and_create(self, group_specs: list[dict]):
+        """Full replace of variant groups for the current shop, in a single transaction.
+
+        Each spec is a dict: {"feature": Feature, "name": str | None, "owner": Product | None,
+        "members": [(Product, position: int), ...]}. Deleting groups cascades their
+        ProductVariantGroupProduct rows, so a single delete clears memberships too.
+
+        The delete + both inserts run inside transaction.atomic() so concurrent readers
+        (Matrix product-detail) never observe the gap between delete and re-insert: under
+        READ COMMITTED they see the old groups until this transaction commits, then the new
+        ones. Without it, a customer hitting the endpoint mid-import would get empty variants.
+        """
+        with transaction.atomic():
+            ProductVariantGroup.objects.filter(shop=self.shop).delete()
+
+            if not group_specs:
+                self.logger.info("ProductVariantGroup full replace: 0 groups (cleared)")
+                return []
+
+            # uniq_variant_group_shop_owner_feature makes a repeated (owner, feature) spec
+            # an IntegrityError that would abort the whole replace after the delete already
+            # ran. Collapse duplicates here; first occurrence wins. A NULL owner or feature
+            # stays distinct, matching the constraint's nulls_distinct=True.
+            unique_specs = []
+            seen_axes = set()
+            for spec in group_specs:
+                owner, feature = spec.get("owner"), spec["feature"]
+                axis = (owner.pk, feature.pk) if owner and feature else None
+                if axis is not None:
+                    if axis in seen_axes:
+                        continue
+                    seen_axes.add(axis)
+                unique_specs.append(spec)
+
+            groups = [
+                ProductVariantGroup(
+                    shop=self.shop, feature=spec["feature"], name=spec.get("name"), owner=spec.get("owner")
+                )
+                for spec in unique_specs
+            ]
+            self.logger.set_db_operation("BULK_CREATE", self.name, "ProductVariantGroup")
+            created_groups = ProductVariantGroup.objects.bulk_create(groups, batch_size=self.BULK_BATCH_SIZE)
+            self.logger.set_code(None)
+
+            # Magento crosses can list the same SKU twice within one slice; a repeated
+            # member would violate unique_together (group, product) and abort the whole
+            # replace after the delete already ran. First occurrence wins.
+            memberships = []
+            for group, spec in zip(created_groups, unique_specs, strict=True):
+                seen_products = set()
+                for product, position in spec["members"]:
+                    if product.pk in seen_products:
+                        continue
+                    seen_products.add(product.pk)
+                    memberships.append(ProductVariantGroupProduct(group=group, product=product, position=position))
+            self.logger.set_db_operation("BULK_CREATE", self.name, "ProductVariantGroupProduct")
+            ProductVariantGroupProduct.objects.bulk_create(memberships, batch_size=self.BULK_BATCH_SIZE)
+            self.logger.set_code(None)
+            self.logger.info(
+                f"ProductVariantGroup full replace: {len(created_groups)} groups ({len(memberships)} memberships)"
+            )
+
+        return created_groups
 
     def get_feature_set_by_magento_pk(self, magento_pk: int):
         if magento_pk not in self.feature_set_magento_cache:
