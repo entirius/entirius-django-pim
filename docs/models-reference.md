@@ -1,4 +1,7 @@
-# Models Reference -- django-pim
+---
+title: Models Reference
+description: Field-level inventory of django-pim ORM models.
+---
 
 Complete field-level inventory of all 37 ORM models in `src/django_pim/models/`.
 

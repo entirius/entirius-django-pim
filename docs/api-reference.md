@@ -1,4 +1,7 @@
-# API Reference -- django-pim Admin API v2
+---
+title: API Reference
+description: Complete endpoint reference for the django-pim Admin API v2.
+---
 
 Full surface documentation for the PIM Admin API. Covers endpoint routes, query parameters, request/response schemas, and error codes.
 
