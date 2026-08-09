@@ -1,4 +1,7 @@
-# Enrichment Adapter
+---
+title: Enrichment Adapter
+description: How PIM implements the enrichment adapter contract.
+---
 
 `src/django_pim/services/enrichment_adapter.py` is PIM's read/write boundary for the
 [django-enrichment](../../django-enrichment/AGENTS.md) bus — the **referential** adapter (decision
