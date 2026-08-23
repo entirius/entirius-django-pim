@@ -64,6 +64,21 @@ reads materialised `GapFinding` rows (`check` = `GapDefinition.key`, `inherited`
 deep-muted targets absent by construction) and returns plain-dict candidates — full contract:
 `docs/enrichment-adapter.md`.
 
+## Lookup Provider
+
+`services/lookup_provider.py` is PIM's read boundary for the **django-lookup** module (dedup /
+"do we have something like this?"). Same shape as the enrichment adapter: lookup loads it lazily from
+`LOOKUP_PROVIDERS = {"pim_product": "django_pim.services.lookup_provider"}` and calls duck-typed
+module-level functions (`iter_items`, `get_item`, `basic`, `detail_url`, `signal_specs`). It imports
+nothing from django-lookup — `ProviderItem` / `BasicData` are mirrored here so an optional consumer
+never becomes a PIM dependency.
+
+One item per `RealProduct`, `ref` = SKU. Identifiers and physicals come from the RealProduct;
+display data (name t9n, `brand` / `mpn` features, MAIN picture path) from ONE product — the first
+enabled one, else the first by id — since a RealProduct projects into many channels. `signal_specs()`
+declares the senders lookup connects so a fingerprint follows the catalog: `RealProduct` saves,
+`ProductAttribute` saves for `name` / `brand` / `mpn`, MAIN `ProductPicture` saves and deletes.
+
 ## Architecture
 
 ```
