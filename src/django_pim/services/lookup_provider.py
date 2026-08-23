@@ -26,7 +26,8 @@ from ..settings import SYSTEM_FEATURE_BRAND_IDX, SYSTEM_FEATURE_NAME_IDX, T9N_DE
 # MPN has no system feature in PIM — installations model it as a business-unit feature `mpn`.
 MPN_FEATURE_IDX = "mpn"
 DETAIL_URL = "/api/pim/v2/admin/{channel_idx}/products/{sku}/"
-_PHYSICAL_ATTRS = ("weight", "width", "height", "deep")
+# Shared with `lookup_bridge` (the call side of the same boundary) — declared once.
+PHYSICAL_ATTRS = ("weight", "width", "height", "deep")
 # Everything a provider item needs, in one round trip per batch (no query inside the loop).
 _RELATED = ("products__shop__default_language", "products__products_attributes__feature", "products__pictures__picture")
 
@@ -132,7 +133,7 @@ def _item(real_product: RealProduct) -> ProviderItem:
         brand=_attribute_value(product, SYSTEM_FEATURE_BRAND_IDX),
         mpn=_attribute_value(product, MPN_FEATURE_IDX),
         name_by_lang=_names(product),
-        attrs={name: getattr(real_product, name) for name in _PHYSICAL_ATTRS},
+        attrs={name: getattr(real_product, name) for name in PHYSICAL_ATTRS},
         image_path_or_url=_main_picture_path(product),
         updated_at=real_product.updated_at,
     )

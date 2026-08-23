@@ -79,6 +79,25 @@ enabled one, else the first by id — since a RealProduct projects into many cha
 declares the senders lookup connects so a fingerprint follows the catalog: `RealProduct` saves,
 `ProductAttribute` saves for `name` / `brand` / `mpn`, MAIN `ProductPicture` saves and deletes.
 
+## Lookup Create Hook
+
+`services/lookup_bridge.py` is PIM's *call* side of the same boundary — the mirror image of
+`lookup_provider.py`. `POST {channel}/products/` runs an advisory duplicate check before creating:
+`build_query` turns the create request into a `LookupQuery` payload (ean, `name`/`brand`/`mpn`
+attributes in the channel language, physicals, `limit` 5, no `scope` so lookup searches every
+registered kind), and `possible_duplicates` calls `lookup_service.check`, which scores the
+candidates and logs a `DedupDecision` per candidate. The answer rides back in the create response as
+`possible_duplicates[]` (+ `lookup_warnings[]`); both are empty on GET.
+
+Never blocks, never links: the create is not conditional on the answer and nothing is written to
+`RealProduct`. Every failure degrades to a warning — module absent → `lookup_unavailable`, anything
+else → `lookup_failed` — so an optional module can never cost the caller its product. The hook sits
+in the view, not in `create_product`: the service is also the import path, which must stay free of a
+per-row lookup call. Its response shape is mirrored in `schemas/responses/lookup.py` (a Pydantic
+annotation is resolved at class definition time, so importing lookup's schema would make the
+optional module a hard dependency and the OpenAPI document deployment-dependent).
+`PIM_LOOKUP_ON_CREATE` (default `True`) switches the hook off.
+
 ## Architecture
 
 ```

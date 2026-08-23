@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .lookup import PossibleDuplicateResponse
+
 
 class ProductResponse(BaseModel):
     """
@@ -222,4 +224,17 @@ class ProductDetailResponse(BaseModel):
         None,
         description="ISO8601 of last gap evaluation; null = never evaluated / unevaluable (ProductCustom)",
         examples=["2026-06-07T10:00:00+00:00", None],
+    )
+    possible_duplicates: list[PossibleDuplicateResponse] = Field(
+        default_factory=list,
+        description=(
+            "Create response only: products the catalogs (PIM + atlas) already hold that look like "
+            "this one. Advisory — the product is created either way and nothing is linked. Always "
+            "empty on GET and when django-lookup is not installed."
+        ),
+    )
+    lookup_warnings: list[str] = Field(
+        default_factory=list,
+        description="Create response only: degradations of the duplicate check that did not stop the create",
+        examples=[["lookup_unavailable"]],
     )

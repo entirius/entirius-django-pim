@@ -21,6 +21,7 @@ from .gap import (
     GapSettingsResponse,
     GapStatusResponse,
 )
+from .lookup import LookupBasicResponse, LookupReasonResponse, PossibleDuplicateResponse
 from .product import (
     ProductAttributeValueResponse,
     ProductCategoryBriefResponse,
@@ -41,6 +42,9 @@ __all__ = [
     "ProductDetailResponse",
     "ProductAttributeValueResponse",
     "ProductCategoryBriefResponse",
+    "PossibleDuplicateResponse",
+    "LookupReasonResponse",
+    "LookupBasicResponse",
     "CategoryResponse",
     "CategoryListResponse",
     "CategoryDetailResponse",
