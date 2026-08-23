@@ -82,10 +82,11 @@ def _check(payload: dict, user: AbstractBaseUser | None) -> tuple[list[PossibleD
     Serialising here, inside the caller's guard, keeps a contract drift a warning rather than a 500
     on a product that was already created.
     """
+    from django_lookup.enums import DecisionSource
     from django_lookup.schemas.requests.lookup import LookupQuery
     from django_lookup.services import lookup_service
 
-    result = lookup_service.check(LookupQuery(**payload), user=user)
+    result = lookup_service.check(LookupQuery(**payload), user=user, source=DecisionSource.CREATE_HOOK)
     return [PossibleDuplicateResponse(**asdict(hit)) for hit in result.candidates], list(result.warnings)
 
 

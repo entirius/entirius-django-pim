@@ -24,6 +24,7 @@ CHANNEL = "test-shop"
 PRODUCTS_URL = f"/api/pim/admin/{CHANNEL}/products/"
 _LOOKUP_MODULES = (
     "django_lookup",
+    "django_lookup.enums",
     "django_lookup.schemas",
     "django_lookup.schemas.requests",
     "django_lookup.schemas.requests.lookup",
@@ -94,15 +95,19 @@ def _install_fake_lookup(monkeypatch, check):
     """Inject a minimal `django_lookup` package; `check` records its call and answers."""
     calls = []
 
-    def _check(query, user=None, image_data=None):
-        calls.append({"query": query, "user": user})
+    def _check(query, user=None, image_data=None, source="api_check"):
+        calls.append({"query": query, "user": user, "source": source})
         return check(query)
 
     class _LookupQuery:
         def __init__(self, **fields):
             self.fields = fields
 
+    class _DecisionSource:
+        CREATE_HOOK = "create_hook"
+
     modules = {name: types.ModuleType(name) for name in _LOOKUP_MODULES}
+    modules["django_lookup.enums"].DecisionSource = _DecisionSource
     modules["django_lookup.schemas.requests.lookup"].LookupQuery = _LookupQuery
     modules["django_lookup.services.lookup_service"].check = _check
     modules["django_lookup.services"].lookup_service = modules["django_lookup.services.lookup_service"]
@@ -283,6 +288,7 @@ class TestCreateHookEndpoint:
         ]
         assert calls[0]["query"].fields["ean"] == "5901234123457"
         assert calls[0]["user"].is_staff  # the decision log records who was shown the candidates
+        assert calls[0]["source"] == "create_hook"  # plan 07 binding: DedupDecision(source="create_hook")
 
     def test_create_still_201_when_lookup_is_absent(self, authenticated_client, monkeypatch):
         _block_lookup(monkeypatch)
