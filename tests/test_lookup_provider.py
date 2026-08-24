@@ -90,6 +90,22 @@ def test_display_data_comes_from_the_first_enabled_product(product):
     assert lookup_provider.detail_url("SKU-1") == "/api/pim/v2/admin/main/products/SKU-1/"
 
 
+def test_detail_url_resolves_to_the_registered_product_detail_route(product):
+    """`DETAIL_URL` is a hardcoded mirror of the real route — a route change must fail this test,
+    not silently produce dead CMS links. `resolve()`, not `reverse()`: the v2 and legacy admin
+    mounts share the `product-detail` name, so `reverse()` is ambiguous between them.
+    """
+    from django.urls import resolve
+
+    from django_pim.api.admin.views.product_views import ProductViewSet
+
+    match = resolve(lookup_provider.detail_url("SKU-1"))
+
+    assert match.url_name == "product-detail"
+    assert match.kwargs == {"channel_idx": "main", "sku": "SKU-1"}
+    assert match.func.cls is ProductViewSet
+
+
 def test_image_is_the_main_picture_local_path(product):
     picture = _picture()
     ProductPicture.objects.create(product=product, picture=picture, picture_role=PictureRoleEnum.MAIN)
@@ -175,6 +191,26 @@ class TestSignalSpecs:
         attribute = _attribute(product, feature_idx, txt="x", scope=scope)
 
         assert _resolver("django_pim.ProductAttribute")(attribute) == expected
+
+    def test_a_non_fingerprinted_attribute_short_circuits_with_no_query(self, product, django_assert_num_queries):
+        """The common case (enrichment apply, admin edit, per-row importer): no joins at all."""
+        attribute = _attribute(product, "color", txt="red", scope=FeatureScopeEnum.BUSINESS_UNIT)
+        resolve = _resolver("django_pim.ProductAttribute")
+        resolve(ProductAttribute.objects.get(pk=attribute.pk))  # warm the fingerprinted-ids cache
+
+        fresh = ProductAttribute.objects.get(pk=attribute.pk)
+        with django_assert_num_queries(0):
+            assert resolve(fresh) is None
+
+    def test_a_fingerprinted_attribute_needs_two_queries_not_three(self, product, django_assert_num_queries):
+        """Down from 3 (feature, product, real_product) to 2 — the feature check is now cached."""
+        attribute = _attribute(product, "brand", t9n={"pl": "Bosch"}, scope=FeatureScopeEnum.SYSTEM)
+        resolve = _resolver("django_pim.ProductAttribute")
+        resolve(ProductAttribute.objects.get(pk=attribute.pk))  # warm the fingerprinted-ids cache
+
+        fresh = ProductAttribute.objects.get(pk=attribute.pk)
+        with django_assert_num_queries(2):
+            assert resolve(fresh) == "SKU-1"
 
     @pytest.mark.parametrize("signal", ["post_save", "post_delete"])
     def test_only_the_main_picture_refreshes(self, product, signal):

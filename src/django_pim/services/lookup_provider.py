@@ -20,7 +20,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ..models import PictureRoleEnum, Product, RealProduct
+from ..models import Feature, PictureRoleEnum, Product, RealProduct
 from ..settings import SYSTEM_FEATURE_BRAND_IDX, SYSTEM_FEATURE_NAME_IDX, T9N_DEFAULT_LANG
 
 # MPN has no system feature in PIM — installations model it as a business-unit feature `mpn`.
@@ -105,6 +105,10 @@ def signal_specs() -> list[dict]:
 
 
 FINGERPRINTED_FEATURE_IDXS = frozenset({SYSTEM_FEATURE_NAME_IDX, SYSTEM_FEATURE_BRAND_IDX, MPN_FEATURE_IDX})
+# Cached 60s (house pattern: signals/killswitch.py) so a non-fingerprinted attribute save — the
+# common case on every enrichment apply / admin edit / per-row importer — costs zero extra queries
+# instead of a `Feature` fetch per row.
+FINGERPRINTED_FEATURE_IDS_CACHE_KEY = "pim:lookup:fingerprinted_feature_ids"
 
 
 def _ref_for_product(product) -> str | None:
@@ -118,8 +122,25 @@ def _ref_for_product(product) -> str | None:
     return product.real_product.sku if product.real_product_id else None
 
 
+def _fingerprinted_feature_ids() -> frozenset[int]:
+    """`Feature.id` for `FINGERPRINTED_FEATURE_IDXS`, cached 60s.
+
+    `attribute.feature_id` is a plain column (always resolved, no query); checking it against this
+    set avoids the `attribute.feature.idx` fetch that a fresh-from-DB `ProductAttribute` would
+    otherwise trigger on every save.
+    """
+    from django.core.cache import cache
+
+    cached = cache.get(FINGERPRINTED_FEATURE_IDS_CACHE_KEY)
+    if cached is not None:
+        return cached
+    ids = frozenset(Feature.objects.filter(idx__in=FINGERPRINTED_FEATURE_IDXS).values_list("id", flat=True))
+    cache.set(FINGERPRINTED_FEATURE_IDS_CACHE_KEY, ids, 60)
+    return ids
+
+
 def _ref_for_attribute(attribute) -> str | None:
-    if attribute.feature.idx not in FINGERPRINTED_FEATURE_IDXS:
+    if attribute.feature_id not in _fingerprinted_feature_ids():
         return None
     return attribute.product.real_product.sku
 

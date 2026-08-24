@@ -100,7 +100,9 @@ in the view, not in `create_product`: the service is also the import path, which
 per-row lookup call. Its response shape is mirrored in `schemas/responses/lookup.py` (a Pydantic
 annotation is resolved at class definition time, so importing lookup's schema would make the
 optional module a hard dependency and the OpenAPI document deployment-dependent).
-`PIM_LOOKUP_ON_CREATE` (default `True`) switches the hook off.
+`PIM_LOOKUP_ON_CREATE` (default `False`) switches the hook on — off by default so a bare
+deployment does not inherit a synchronous cross-module call and a `lookup_warnings` field it never
+opted into; a host that wants the hook sets it `True`.
 
 ## Architecture
 

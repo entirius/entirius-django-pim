@@ -14,6 +14,7 @@ uninstalled module does.
 import sys
 import types
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 import pytest
 
@@ -180,12 +181,56 @@ class TestBuildQuery:
         assert "name" not in lookup_bridge.build_query(request, "pl")
 
 
+class TestBuildQueryContract:
+    """`build_query` mirrors `LookupQuery`/`Attrs` field names by hand — validate against the real
+    schema so a rename over there fails this suite instead of silently degrading every create to a
+    warning. Skips cleanly when django-lookup is not installed next to PIM (a bare checkout).
+    """
+
+    def test_the_built_payload_validates_against_the_real_lookup_query_schema(self):
+        pytest.importorskip("django_lookup")
+        from django_lookup.schemas.requests.lookup import LookupQuery
+
+        request = _request(
+            ean="5901234123457",
+            weight="1.50",
+            width="30.00",
+            attributes=[
+                _attribute("name", value_txt_t9n={"pl": "Wiertarka"}),
+                _attribute("brand", value_txt_t9n={"pl": "Bosch"}),
+                _attribute("mpn", value_txt="GSR 12V-35"),
+            ],
+        )
+
+        query = LookupQuery(**lookup_bridge.build_query(request, "pl"))
+
+        assert (query.ean, query.name, query.brand, query.mpn) == (
+            "5901234123457",
+            "Wiertarka",
+            "Bosch",
+            "GSR 12V-35",
+        )
+        assert (query.attrs.weight, query.attrs.width) == (Decimal("1.50"), Decimal("30.00"))
+
+
+def test_the_setting_defaults_to_off():
+    """A bare deployment must not inherit a synchronous cross-module call on every create."""
+    from django_pim import settings as pim_settings
+
+    assert pim_settings.PIM_LOOKUP_ON_CREATE is False
+
+
 # --------------------------------------------------------------------------------------------
 # possible_duplicates — the three hook states
 # --------------------------------------------------------------------------------------------
 
 
 class TestPossibleDuplicates:
+    @pytest.fixture(autouse=True)
+    def _enable_hook(self, monkeypatch):
+        """Off by default (PIM_LOOKUP_ON_CREATE) — these tests exercise the hook itself."""
+        monkeypatch.setattr("django_pim.settings.PIM_LOOKUP_ON_CREATE", True)
+
     def test_lookup_present_returns_scored_candidates(self, monkeypatch):
         calls = _install_fake_lookup(
             monkeypatch, lambda query: _CheckResult(decision="review", parsed={}, candidates=[_hit()])
@@ -262,9 +307,10 @@ class TestPossibleDuplicates:
 @pytest.mark.django_db
 class TestCreateHookEndpoint:
     @pytest.fixture(autouse=True)
-    def channel(self, authenticated_client):
+    def channel(self, authenticated_client, monkeypatch):
         from tests.factories import ChannelFactory, FeatureSetFactory
 
+        monkeypatch.setattr("django_pim.settings.PIM_LOOKUP_ON_CREATE", True)  # off by default
         ChannelFactory(idx=CHANNEL)
         FeatureSetFactory(idx="test-set", name="Test Set")
 
