@@ -146,6 +146,22 @@ class TestSignalSpecs:
     def test_real_product_resolves_to_its_sku(self, product):
         assert _resolver("django_pim.RealProduct")(product.real_product) == "SKU-1"
 
+    def test_product_resolves_to_its_sku(self, product):
+        assert _resolver("django_pim.Product")(product) == "SKU-1"
+
+    def test_product_without_a_real_product_is_ignored(self):
+        from django_pim.models import Product
+
+        assert _resolver("django_pim.Product")(Product()) is None
+
+    def test_no_spec_watches_columns(self):
+        """`update_product` compensates for `bulk_create` with a `post_save` that skips `pre_save`.
+
+        A `watch` list is evaluated against a pre-save snapshot, so declaring one here would filter
+        that compensating send out and freeze the fingerprint on the CMS edit path.
+        """
+        assert [s for s in lookup_provider.signal_specs() if s.get("watch")] == []
+
     @pytest.mark.parametrize(
         ("feature_idx", "scope", "expected"),
         [
@@ -169,3 +185,36 @@ class TestSignalSpecs:
         resolve = _resolver("django_pim.ProductPicture", signal)
 
         assert (resolve(main), resolve(general)) == ("SKU-1", None)
+
+
+@pytest.fixture
+def refreshed_refs():
+    """Refs django-lookup would refresh — its real resolver on the real `Product` post_save."""
+    from django.db.models.signals import post_save
+
+    from django_pim.models import Product
+
+    refs: list[str | None] = []
+    resolve = _resolver("django_pim.Product")
+
+    def receiver(sender, instance, **kwargs):
+        refs.append(resolve(instance))
+
+    post_save.connect(receiver, sender=Product, weak=False, dispatch_uid="test-lookup-product-refresh")
+    yield refs
+    post_save.disconnect(sender=Product, dispatch_uid="test-lookup-product-refresh")
+
+
+def test_renaming_a_product_refreshes_its_fingerprint(product, refreshed_refs):
+    """The regression: `_set_product_attributes` bulk-creates, so only the Product sender sees it."""
+    from django_pim.services import product_service
+
+    _attribute(product, "name", t9n={"pl": "Wiertarka"}, scope=FeatureScopeEnum.SYSTEM)
+    refreshed_refs.clear()
+
+    product_service.update_product(
+        product.shop.idx, "SKU-1", attributes=[{"feature_idx": "name", "value_txt_t9n": {"pl": "Szlifierka"}}]
+    )
+
+    assert refreshed_refs == ["SKU-1"]
+    assert lookup_provider.get_item("SKU-1").name_by_lang == {"pl": "Szlifierka"}

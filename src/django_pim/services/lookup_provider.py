@@ -97,6 +97,7 @@ def signal_specs() -> list[dict]:
     """Senders django-lookup connects so a fingerprint follows the catalog (see its signals.py)."""
     return [
         {"model": "django_pim.RealProduct", "signal": "post_save", "ref": lambda rp: rp.sku},
+        {"model": "django_pim.Product", "signal": "post_save", "ref": _ref_for_product},
         {"model": "django_pim.ProductAttribute", "signal": "post_save", "ref": _ref_for_attribute},
         {"model": "django_pim.ProductPicture", "signal": "post_save", "ref": _ref_for_picture},
         {"model": "django_pim.ProductPicture", "signal": "post_delete", "ref": _ref_for_picture},
@@ -104,6 +105,17 @@ def signal_specs() -> list[dict]:
 
 
 FINGERPRINTED_FEATURE_IDXS = frozenset({SYSTEM_FEATURE_NAME_IDX, SYSTEM_FEATURE_BRAND_IDX, MPN_FEATURE_IDX})
+
+
+def _ref_for_product(product) -> str | None:
+    """Attribute writes that go through `bulk_create` never fire a per-row `post_save`.
+
+    `product_service.update_product` compensates by sending one `post_save` for the Product itself —
+    without this sender a rename (name / brand / mpn) would leave the fingerprint stale forever.
+    No `watch`: the compensating send skips `pre_save`, so a watched-column snapshot would be stale
+    from the product's own save and swallow exactly the event this exists to catch.
+    """
+    return product.real_product.sku if product.real_product_id else None
 
 
 def _ref_for_attribute(attribute) -> str | None:

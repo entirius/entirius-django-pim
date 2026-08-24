@@ -77,7 +77,11 @@ One item per `RealProduct`, `ref` = SKU. Identifiers and physicals come from the
 display data (name t9n, `brand` / `mpn` features, MAIN picture path) from ONE product — the first
 enabled one, else the first by id — since a RealProduct projects into many channels. `signal_specs()`
 declares the senders lookup connects so a fingerprint follows the catalog: `RealProduct` saves,
-`ProductAttribute` saves for `name` / `brand` / `mpn`, MAIN `ProductPicture` saves and deletes.
+`Product` saves, `ProductAttribute` saves for `name` / `brand` / `mpn`, MAIN `ProductPicture` saves
+and deletes. The `Product` sender is what makes the CMS edit path visible: `_set_product_attributes`
+writes with `bulk_create` (no per-row signal) and `update_product` compensates with a single
+`post_save` for the Product — none of the specs may declare `watch`, or that compensating send
+(which never passes `pre_save`) gets filtered out and renames stop refreshing the fingerprint.
 
 ## Lookup Create Hook
 
