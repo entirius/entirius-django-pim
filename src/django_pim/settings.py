@@ -146,9 +146,3 @@ PIM_GAPS_DEBOUNCE_SECONDS = getattr(settings, "PIM_GAPS_DEBOUNCE_SECONDS", 5)
 PIM_GAPS_BATCH_SIZE = getattr(settings, "PIM_GAPS_BATCH_SIZE", 10000)
 PIM_GAPS_QUEUE = getattr(settings, "PIM_GAPS_QUEUE", "celery")
 PIM_GAPS_PENDING_TTL = getattr(settings, "PIM_GAPS_PENDING_TTL", 300)
-
-# django-lookup create hook — advisory duplicate check on POST products/ (optional module:
-# an absent or failing lookup degrades to a warning, the product is created either way).
-# Off by default: a synchronous cross-module call plus `lookup_warnings` on every create is an
-# opt-in, not a stock behaviour every deployment inherits — a host that wants it sets it True.
-PIM_LOOKUP_ON_CREATE = getattr(settings, "PIM_LOOKUP_ON_CREATE", False)

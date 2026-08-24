@@ -26,6 +26,7 @@ PRODUCTS_URL = f"/api/pim/admin/{CHANNEL}/products/"
 _LOOKUP_MODULES = (
     "django_lookup",
     "django_lookup.enums",
+    "django_lookup.settings",
     "django_lookup.schemas",
     "django_lookup.schemas.requests",
     "django_lookup.schemas.requests.lookup",
@@ -92,8 +93,11 @@ def _hit(ref="ATLAS-1", kind="atlas_source_product"):
     )
 
 
-def _install_fake_lookup(monkeypatch, check):
-    """Inject a minimal `django_lookup` package; `check` records its call and answers."""
+def _install_fake_lookup(monkeypatch, check, providers=None):
+    """Inject a minimal `django_lookup` package; `check` records its call and answers.
+
+    `providers` is what the host has registered — the bridge's own gate reads it.
+    """
     calls = []
 
     def _check(query, user=None, image_data=None, source="api_check"):
@@ -107,7 +111,9 @@ def _install_fake_lookup(monkeypatch, check):
     class _DecisionSource:
         CREATE_HOOK = "create_hook"
 
+    registered = {"pim_product": "django_pim.services.lookup_provider"} if providers is None else providers
     modules = {name: types.ModuleType(name) for name in _LOOKUP_MODULES}
+    modules["django_lookup.settings"].get_providers = lambda: registered
     modules["django_lookup.enums"].DecisionSource = _DecisionSource
     modules["django_lookup.schemas.requests.lookup"].LookupQuery = _LookupQuery
     modules["django_lookup.services.lookup_service"].check = _check
@@ -213,11 +219,12 @@ class TestBuildQueryContract:
         assert (query.attrs.weight, query.attrs.width) == (Decimal("1.50"), Decimal("30.00"))
 
 
-def test_the_setting_defaults_to_off():
-    """A bare deployment must not inherit a synchronous cross-module call on every create."""
-    from django_pim import settings as pim_settings
+def test_a_host_without_a_registered_provider_is_a_silent_no_op(monkeypatch):
+    """One source of truth: no `pim_product` provider registered means this host does not run lookup
+    over PIM products, so the hook does nothing and says nothing (absence is not a failure)."""
+    _install_fake_lookup(monkeypatch, lambda query: _CheckResult("review", {}, [_hit()]), providers={})
 
-    assert pim_settings.PIM_LOOKUP_ON_CREATE is False
+    assert lookup_bridge.possible_duplicates(_request(ean="5901234123457"), "pl") == ([], [])
 
 
 # --------------------------------------------------------------------------------------------
@@ -227,9 +234,9 @@ def test_the_setting_defaults_to_off():
 
 class TestPossibleDuplicates:
     @pytest.fixture(autouse=True)
-    def _enable_hook(self, monkeypatch):
-        """Off by default (PIM_LOOKUP_ON_CREATE) — these tests exercise the hook itself."""
-        monkeypatch.setattr("django_pim.settings.PIM_LOOKUP_ON_CREATE", True)
+    def _register_provider(self, monkeypatch):
+        """These tests exercise the hook, so the host must register the `pim_product` provider."""
+        monkeypatch.setattr(lookup_bridge, "enabled", lambda: True)
 
     def test_lookup_present_returns_scored_candidates(self, monkeypatch):
         calls = _install_fake_lookup(
@@ -290,9 +297,9 @@ class TestPossibleDuplicates:
 
         assert (duplicates, warnings, calls) == ([], [], [])
 
-    def test_the_setting_switches_the_hook_off(self, monkeypatch):
+    def test_an_unregistered_provider_switches_the_hook_off(self, monkeypatch):
         calls = _install_fake_lookup(monkeypatch, lambda query: _CheckResult("review", {}, [_hit()]))
-        monkeypatch.setattr("django_pim.settings.PIM_LOOKUP_ON_CREATE", False)
+        monkeypatch.setattr(lookup_bridge, "enabled", lambda: False)
 
         duplicates, warnings = lookup_bridge.possible_duplicates(_request(ean="5901234123457"), "pl")
 
@@ -310,7 +317,7 @@ class TestCreateHookEndpoint:
     def channel(self, authenticated_client, monkeypatch):
         from tests.factories import ChannelFactory, FeatureSetFactory
 
-        monkeypatch.setattr("django_pim.settings.PIM_LOOKUP_ON_CREATE", True)  # off by default
+        monkeypatch.setattr(lookup_bridge, "enabled", lambda: True)  # the host registers the provider
         ChannelFactory(idx=CHANNEL)
         FeatureSetFactory(idx="test-set", name="Test Set")
 

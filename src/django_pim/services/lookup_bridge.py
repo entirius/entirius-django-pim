@@ -19,7 +19,6 @@ from dataclasses import asdict
 
 from django.contrib.auth.base_user import AbstractBaseUser
 
-from .. import settings as pim_settings
 from ..schemas.requests.product import CreateProductRequest
 from ..schemas.responses.lookup import PossibleDuplicateResponse
 from ..settings import SYSTEM_FEATURE_BRAND_IDX, SYSTEM_FEATURE_NAME_IDX, T9N_DEFAULT_LANG
@@ -34,6 +33,21 @@ WARNING_LOOKUP_UNAVAILABLE = "lookup_unavailable"
 WARNING_LOOKUP_FAILED = "lookup_failed"
 # `LookupQuery` refuses a query without at least one of these; a create carrying none is unmatchable.
 _QUERY_SIGNALS = ("ean", "name", "mpn")
+LOOKUP_KIND = "pim_product"  # the key a host registers in `settings.LOOKUP_PROVIDERS`
+
+
+def enabled() -> bool:
+    """Does this host run lookup over PIM products?
+
+    One source of truth: the provider registry. A host that installs django-lookup and registers a
+    `pim_product` provider is part of the lookup graph and wants the advisory check; one that does not
+    gets a silent no-op — an unconfigured optional module is not a failure, so it raises no warning.
+    """
+    try:
+        from django_lookup.settings import get_providers
+    except ImportError:
+        return False
+    return LOOKUP_KIND in get_providers()
 
 
 def build_query(request: CreateProductRequest, language: str | None = None) -> dict:
@@ -61,7 +75,7 @@ def possible_duplicates(
 
     Every failure degrades into a warning: an advisory hook must never cost the caller its product.
     """
-    if not pim_settings.PIM_LOOKUP_ON_CREATE:
+    if not enabled():
         return [], []
     payload = build_query(request, language)
     if not any(payload.get(signal) for signal in _QUERY_SIGNALS):
