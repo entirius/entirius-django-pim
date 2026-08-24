@@ -43,6 +43,7 @@ from ....services import (
     get_channel_language,
     get_product_detail,
     list_products,
+    lookup_bridge,
     toggle_language_override,
     toggle_media_override,
     update_product,
@@ -409,6 +410,10 @@ class ProductViewSet(viewsets.ViewSet):
             raise_pydantic_as_drf(exc)
 
         try:
+            language = get_channel_language(channel_idx)
+            # Advisory duplicate check BEFORE the create: it must not run inside the create's
+            # transaction, and its answer describes the catalogs as they were without this product.
+            duplicates, lookup_warnings = lookup_bridge.possible_duplicates(data, language, request.user)
             product = create_product(
                 channel_idx=channel_idx,
                 sku=data.sku,
@@ -427,10 +432,10 @@ class ProductViewSet(viewsets.ViewSet):
             )
             # Re-fetch with prefetched relations for detail response
             product = get_product_detail(channel_idx=channel_idx, sku=product.sku)
-            return Response(
-                _build_product_detail_response(product, language=get_channel_language(channel_idx)).model_dump(),
-                status=status.HTTP_201_CREATED,
-            )
+            detail = _build_product_detail_response(product, language=language)
+            detail.possible_duplicates = duplicates
+            detail.lookup_warnings = lookup_warnings
+            return Response(detail.model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Channel.DoesNotExist:
