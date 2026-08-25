@@ -59,7 +59,14 @@ class BasicData:
 
 
 def iter_items(since: datetime | None = None) -> Iterator[ProviderItem]:
-    """Stream every RealProduct (optionally only those touched since `since`)."""
+    """Stream every RealProduct (optionally only those touched since `since`).
+
+    `since` compares `RealProduct.updated_at`, which only the RealProduct's own fields (sku, ean,
+    physicals) bump. Display data lives on Product / ProductAttribute / ProductPicture, whose writes
+    leave that column alone — an incremental run is therefore an identifier-level catch-up, not a
+    full drift repair. The freshness signals cover those writes row by row; use a full backfill
+    (no `since`) after any period when the `lookup` queue was not running.
+    """
     queryset = RealProduct.objects.all()
     if since is not None:
         queryset = queryset.filter(updated_at__gte=since)
@@ -72,17 +79,8 @@ def get_item(ref: str) -> ProviderItem:
 
 
 def basic(ref: str) -> BasicData:
-    """Display data for a lookup hit — the name in the default language, not every translation."""
-    real_product = _require(ref)
-    item = _item(real_product)
-    return BasicData(
-        ref=item.ref,
-        name=item.name_by_lang.get(T9N_DEFAULT_LANG) or next(iter(item.name_by_lang.values()), ""),
-        brand=item.brand or "",
-        gtin=item.gtin or "",
-        mpn=item.mpn or "",
-        image_url=_main_picture_url(_display_product(real_product)),
-    )
+    """Display data for one lookup hit. `basics` is the form lookup actually uses (see it)."""
+    return _basic(_require(ref))
 
 
 def detail_url(ref: str) -> str:
@@ -91,6 +89,29 @@ def detail_url(ref: str) -> str:
     if product is None:
         raise LookupError(f"RealProduct sku={ref!r} has no product in any channel")
     return DETAIL_URL.format(channel_idx=product.shop.idx, sku=ref)
+
+
+def basics(refs: list[str]) -> dict[str, BasicData]:
+    """Batch form of `basic` — the optional protocol extension in `django_lookup.providers.base`.
+
+    Without it lookup falls back to the singular pair, and one hit then costs two full `_require`
+    round trips (~8 queries each, `_RELATED` has three prefetch legs) — ~80 queries for the create
+    hook's five candidates. Here the whole hit list is one round trip.
+
+    Contract: refs the provider no longer serves are OMITTED, never raised — the batch form has no
+    per-ref slot to carry "gone".
+    """
+    return {real_product.sku: _basic(real_product) for real_product in _fetch(refs)}
+
+
+def detail_urls(refs: list[str]) -> dict[str, str]:
+    """Batch form of `detail_url`. A RealProduct with no product in any channel has no deep link,
+    so it is omitted — the batch equivalent of the `LookupError` the singular call raises."""
+    urls = {}
+    for real_product in _fetch(refs):
+        if product := _display_product(real_product):
+            urls[real_product.sku] = DETAIL_URL.format(channel_idx=product.shop.idx, sku=real_product.sku)
+    return urls
 
 
 def signal_specs() -> list[dict]:
@@ -158,6 +179,30 @@ def _require(ref: str) -> RealProduct:
     return real_product
 
 
+def _fetch(refs: list[str]) -> list[RealProduct]:
+    """One prefetch round trip for a whole hit list; unknown refs simply do not come back."""
+    return list(RealProduct.objects.filter(sku__in=refs).prefetch_related(*_RELATED))
+
+
+def _basic(real_product: RealProduct) -> BasicData:
+    """Display data for a hit — the name in the display product's own channel language.
+
+    The same language `brand` / `mpn` are read in (`_attribute_value`): a hit shown in a Polish
+    channel must not pair a Polish brand with an English name.
+    """
+    product = _display_product(real_product)
+    names = _names(product)
+    language = _default_language(product) if product is not None else T9N_DEFAULT_LANG
+    return BasicData(
+        ref=real_product.sku,
+        name=names.get(language) or names.get(T9N_DEFAULT_LANG) or next(iter(names.values()), ""),
+        brand=_attribute_value(product, SYSTEM_FEATURE_BRAND_IDX) or "",
+        gtin=real_product.ean or "",
+        mpn=_attribute_value(product, MPN_FEATURE_IDX) or "",
+        image_url=_main_picture_url(product),
+    )
+
+
 def _item(real_product: RealProduct) -> ProviderItem:
     product = _display_product(real_product)
     return ProviderItem(
@@ -179,11 +224,21 @@ def _display_product(real_product: RealProduct) -> Product | None:
 
 
 def _names(product: Product | None) -> dict[str, str]:
-    """Every language the `name` system feature carries (decision #2: tokens from all languages)."""
+    """Every language the `name` system feature carries (decision #2: tokens from all languages).
+
+    A non-t9n `name` feature (plain VARCHAR255/TEXT — `product_link_service.resolve_product_name`
+    reads exactly that shape) keys its single value under the channel's default language. The query
+    side (`lookup_bridge._attribute_text`) reads both shapes, so the fingerprint must too, or such
+    an installation can never be matched by name.
+    """
     attribute = _attribute(product, SYSTEM_FEATURE_NAME_IDX)
-    if attribute is None or not isinstance(attribute.value_txt_t9n, dict):
+    if attribute is None:
         return {}
-    return {lang: str(value).strip() for lang, value in attribute.value_txt_t9n.items() if value}
+    if isinstance(attribute.value_txt_t9n, dict):
+        return {lang: str(value).strip() for lang, value in attribute.value_txt_t9n.items() if value}
+    if value := (attribute.value_txt or "").strip():
+        return {_default_language(product): value}
+    return {}
 
 
 def _attribute(product: Product | None, feature_idx: str):
@@ -215,9 +270,21 @@ def _main_product_picture(product: Product | None):
 
 
 def _main_picture_path(product: Product | None) -> str | None:
-    """Local filesystem path — the image layer (lookup plan 05) hashes and embeds the bytes."""
+    """Local filesystem path — the image layer (lookup plan 05) hashes and embeds the bytes.
+
+    Falls back to the storage URL: a non-filesystem backend raises `NotImplementedError` from
+    `.path`, and lookup's loader only degrades on `OSError`/`ValueError`, so an unguarded `.path`
+    would take a whole embedding batch down instead of skipping one row. `image_path_or_url`
+    accepts either shape by name.
+    """
     picture = _main_product_picture(product)
-    return picture.picture.image.path if picture and picture.picture.image else None
+    if not (picture and picture.picture.image):
+        return None
+    image = picture.picture.image
+    try:
+        return image.path
+    except NotImplementedError:
+        return image.url
 
 
 def _main_picture_url(product: Product | None) -> str:

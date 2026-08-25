@@ -74,13 +74,16 @@ def possible_duplicates(
     """Candidates the catalogs already hold for this create request, plus any degradation warnings.
 
     Every failure degrades into a warning: an advisory hook must never cost the caller its product.
+    The gate and the query build are inside the guard too — they read host settings and walk
+    caller-supplied attributes, so they are exactly as able to raise as the lookup call itself, and
+    a 500 out of either would break that promise just as thoroughly.
     """
-    if not enabled():
-        return [], []
-    payload = build_query(request, language)
-    if not any(payload.get(signal) for signal in _QUERY_SIGNALS):
-        return [], []
     try:
+        if not enabled():
+            return [], []
+        payload = build_query(request, language)
+        if not any(payload.get(signal) for signal in _QUERY_SIGNALS):
+            return [], []
         return _check(payload, user)
     except ImportError:
         return [], [WARNING_LOOKUP_UNAVAILABLE]

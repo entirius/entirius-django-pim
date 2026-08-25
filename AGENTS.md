@@ -69,9 +69,11 @@ deep-muted targets absent by construction) and returns plain-dict candidates —
 `services/lookup_provider.py` is PIM's read boundary for the **django-lookup** module (dedup /
 "do we have something like this?"). Same shape as the enrichment adapter: lookup loads it lazily from
 `LOOKUP_PROVIDERS = {"pim_product": "django_pim.services.lookup_provider"}` and calls duck-typed
-module-level functions (`iter_items`, `get_item`, `basic`, `detail_url`, `signal_specs`). It imports
-nothing from django-lookup — `ProviderItem` / `BasicData` are mirrored here so an optional consumer
-never becomes a PIM dependency.
+module-level functions (`iter_items`, `get_item`, `basic`/`basics`, `detail_url`/`detail_urls`,
+`signal_specs`; the plural display pair is the optional batch extension lookup prefers — without it
+one hit costs two full prefetch round trips). It imports nothing from django-lookup —
+`ProviderItem` / `BasicData` are mirrored here so an optional consumer never becomes a PIM
+dependency.
 
 One item per `RealProduct`, `ref` = SKU. Identifiers and physicals come from the RealProduct;
 display data (name t9n, `brand` / `mpn` features, MAIN picture path) from ONE product — the first

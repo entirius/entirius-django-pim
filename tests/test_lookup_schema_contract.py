@@ -9,6 +9,13 @@ class definition time, which would make the optional module a hard dependency �
 docstring). This test is the substitute: it compares field names against the real schema when the
 sibling module happens to be importable (the zeno service container), and skips cleanly otherwise —
 mirroring `pytest.importorskip("django_lookup")` in `test_lookup_bridge.py::TestBuildQueryContract`.
+
+`lookup_bridge._check` actually consumes the *dataclasses* (`lookup_service.Candidate`,
+`scoring.Reason`, the `basic` dict), not these response schemas — but those cannot be imported here:
+`lookup_service` pulls in `django_lookup.models`, and django-lookup is deliberately not in this
+suite's `INSTALLED_APPS`. Comparing against the schemas is enough because lookup's own API pins them
+to the dataclasses (`lookup_views` builds `CheckResponse(candidates=[asdict(candidate)])`), so a
+dataclass rename breaks lookup's API tests and the schema in the same pass.
 """
 
 import pytest

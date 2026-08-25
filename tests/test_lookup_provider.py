@@ -116,13 +116,50 @@ def test_image_is_the_main_picture_local_path(product):
 
 
 def test_basic_is_the_display_payload(product):
+    """Name and brand come back in the SAME language — the display product's channel default (PL
+    here), not a global fallback: a hit must never pair a Polish brand with an English name."""
     _attribute(product, "name", t9n={"en": "Drill", "pl": "Wiertarka"}, scope=FeatureScopeEnum.SYSTEM)
     _attribute(product, "brand", t9n={"pl": "Bosch"}, scope=FeatureScopeEnum.SYSTEM)
 
     basic = lookup_provider.basic("SKU-1")
 
-    assert (basic.ref, basic.name, basic.brand, basic.gtin) == ("SKU-1", "Drill", "Bosch", "5901234123457")
+    assert (basic.ref, basic.name, basic.brand, basic.gtin) == ("SKU-1", "Wiertarka", "Bosch", "5901234123457")
     assert basic.image_url == ""
+
+
+def test_a_non_t9n_name_feature_is_keyed_under_the_channel_language(product):
+    """`lookup_bridge._attribute_text` reads `value_txt` on the query side, so the fingerprint must
+    carry it too — otherwise such an installation can never be matched by name."""
+    _attribute(product, "name", txt="Wiertarka", scope=FeatureScopeEnum.SYSTEM)
+
+    assert lookup_provider.get_item("SKU-1").name_by_lang == {"pl": "Wiertarka"}
+    assert lookup_provider.basic("SKU-1").name == "Wiertarka"
+
+
+class TestBatchDisplayCalls:
+    """`basics`/`detail_urls` — the optional protocol extension lookup prefers over the singular
+    pair (`django_lookup.providers.base`): one round trip per hit list instead of two per ref."""
+
+    def test_batch_answers_match_the_singular_calls(self, product):
+        _attribute(product, "name", t9n={"pl": "Wiertarka"}, scope=FeatureScopeEnum.SYSTEM)
+        RealProductFactory(sku="SKU-2")
+
+        assert lookup_provider.basics(["SKU-1", "SKU-2"]) == {
+            "SKU-1": lookup_provider.basic("SKU-1"),
+            "SKU-2": lookup_provider.basic("SKU-2"),
+        }
+        assert lookup_provider.detail_urls(["SKU-1"]) == {"SKU-1": lookup_provider.detail_url("SKU-1")}
+
+    def test_unknown_refs_are_omitted_not_raised(self, product):  # noqa: ARG002 — fixture builds SKU-1
+        assert lookup_provider.basics(["NOPE"]) == {}
+        assert lookup_provider.detail_urls(["NOPE"]) == {}
+
+    def test_a_ref_without_a_channel_is_omitted_from_detail_urls(self, product):
+        """The batch equivalent of the `LookupError` `detail_url` raises — lookup drops the hit."""
+        product.delete()
+
+        assert set(lookup_provider.basics(["SKU-1"])) == {"SKU-1"}
+        assert lookup_provider.detail_urls(["SKU-1"]) == {}
 
 
 def test_iter_items_streams_the_catalog_and_honours_since(product):  # noqa: ARG001 — fixture builds SKU-1
