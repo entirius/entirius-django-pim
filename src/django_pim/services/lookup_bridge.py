@@ -59,13 +59,35 @@ def build_query(request: CreateProductRequest, language: str | None = None) -> d
     lang = language or T9N_DEFAULT_LANG
     payload = {
         "ean": request.ean,
-        "name": _attribute_text(request.attributes, SYSTEM_FEATURE_NAME_IDX, lang),
-        "brand": _attribute_text(request.attributes, SYSTEM_FEATURE_BRAND_IDX, lang),
-        "mpn": _attribute_text(request.attributes, MPN_FEATURE_IDX, lang),
+        "name": _capped("name", _attribute_text(request.attributes, SYSTEM_FEATURE_NAME_IDX, lang)),
+        "brand": _capped("brand", _attribute_text(request.attributes, SYSTEM_FEATURE_BRAND_IDX, lang)),
+        "mpn": _capped("mpn", _attribute_text(request.attributes, MPN_FEATURE_IDX, lang)),
         "attrs": {name: getattr(request, name) for name in PHYSICAL_ATTRS if getattr(request, name)},
         "limit": LOOKUP_LIMIT,
     }
     return {key: value for key, value in payload.items() if value}
+
+
+# Mirrors the `max_length` on `django_lookup.schemas.requests.lookup.LookupQuery`. Duplicated rather
+# than imported because lookup is a soft dependency and `build_query` is deliberately pure. Drift is
+# safe in one direction only: capping SHORTER than lookup allows merely shortens a search string,
+# while capping longer resurrects the failure this exists to prevent — so lower these, never raise
+# them past the schema. `ean` is absent on purpose: PIM's own request schema caps it at 16, well
+# inside lookup's 32, so there is nothing here to defend against.
+_QUERY_CAPS = {"name": 500, "brand": 255, "mpn": 255}
+
+
+def _capped(field: str, value: str | None) -> str | None:
+    """Truncate to lookup's limit instead of letting `LookupQuery(**payload)` reject the whole query.
+
+    A product whose name attribute runs past 500 characters would otherwise turn every create into a
+    `lookup_failed` warning plus a full traceback — an advisory duplicate check silently switched off
+    for exactly the long-titled products most likely to be duplicates. Truncating costs nothing the
+    search cares about: the leading characters carry the signal that blocking and scoring use.
+    """
+    if value is None:
+        return None
+    return value[: _QUERY_CAPS[field]]
 
 
 def possible_duplicates(

@@ -16,12 +16,19 @@ data (name, brand, mpn, picture) comes from ONE product — the first enabled on
 id — while identifiers and physicals come from the RealProduct itself.
 """
 
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import islice
+
+from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 
 from ..models import Feature, PictureRoleEnum, Product, RealProduct
 from ..settings import SYSTEM_FEATURE_BRAND_IDX, SYSTEM_FEATURE_NAME_IDX, T9N_DEFAULT_LANG
+
+logger = logging.getLogger("process")
 
 # MPN has no system feature in PIM — installations model it as a business-unit feature `mpn`.
 MPN_FEATURE_IDX = "mpn"
@@ -61,11 +68,14 @@ class BasicData:
 def iter_items(since: datetime | None = None) -> Iterator[ProviderItem]:
     """Stream every RealProduct (optionally only those touched since `since`).
 
-    `since` compares `RealProduct.updated_at`, which only the RealProduct's own fields (sku, ean,
-    physicals) bump. Display data lives on Product / ProductAttribute / ProductPicture, whose writes
-    leave that column alone — an incremental run is therefore an identifier-level catch-up, not a
-    full drift repair. The freshness signals cover those writes row by row; use a full backfill
-    (no `since`) after any period when the `lookup` queue was not running.
+    `since` compares `RealProduct.updated_at`. Display data lives on Product / ProductAttribute /
+    ProductPicture, whose writes leave that column alone, so the service write paths bump it
+    explicitly through `touch_real_product` — an incremental run therefore catches renames, brand
+    changes and picture swaps, not just identifier edits.
+
+    It is only as complete as those call sites: a write that reaches the tables directly (a raw
+    `queryset.update()`, a data migration, a fixture load) moves no timestamp and is invisible to
+    `--since`. After anything of that shape, run a full backfill.
     """
     queryset = RealProduct.objects.all()
     if since is not None:
@@ -114,13 +124,93 @@ def detail_urls(refs: list[str]) -> dict[str, str]:
     return urls
 
 
+# The key this module is registered under in settings.LOOKUP_PROVIDERS. Kept as a constant for the
+# bulk enqueue below (same posture as django_atlas.services.lookup_provider.KIND).
+KIND = "pim_product"
+
+
+def touch_real_product(real_product_id: int | None) -> None:
+    """Bump `RealProduct.updated_at` because display data owned by another table changed.
+
+    `iter_items(since=...)` filters on that column, so without this a `lookup_backfill --since`
+    would miss every rename, brand change and picture swap: those live on Product /
+    ProductAttribute / ProductPicture, whose writes leave `RealProduct` alone. The freshness
+    signals still cover each write row by row — `since` only carries the load after a period when
+    the `lookup` queue was not running, which is exactly when a correct incremental matters.
+
+    Called once per service write, not once per row: `queryset.update()` skips `auto_now` (so the
+    value is set explicitly) and fires no signals, so this cannot recurse into the RealProduct
+    `post_save` spec or into matrix sync.
+    """
+    if real_product_id is None:
+        return
+    RealProduct.objects.filter(pk=real_product_id).update(updated_at=timezone.now())
+
+
+def touch_real_products(skus: list[str]) -> None:
+    """Bulk form of `touch_real_product`, for a writer that already holds the sku list."""
+    if skus:
+        RealProduct.objects.filter(sku__in=skus).update(updated_at=timezone.now())
+
+
+def enqueue_refresh(refs: list[str]) -> None:
+    """Best-effort fingerprint refresh for rows a `queryset.update()` skipped signals for.
+
+    `bulk_update_products` writes through `queryset.update()`, which fires no `post_save` at all, so
+    the freshness wiring in `signal_specs` never sees those rows. `is_enabled` is what
+    `_display_product` sorts on, so a bulk enable/disable silently re-points which channel Product a
+    fingerprint describes — name, brand, mpn and picture all follow it.
+
+    This deliberately does NOT re-send `post_save`: that sender also drives matrix sync
+    (`signals/handlers.py`), and a bulk toggle does not sync matrix today. Nudging lookup directly
+    keeps the fix to the thing that is actually stale.
+
+    Soft dependency, same posture as `lookup_bridge`: the import is guarded so PIM keeps working
+    without django-lookup, and broker failures are swallowed — a catalog write must never fail
+    because the lookup queue is unreachable, and a dropped enqueue is recoverable with
+    `lookup_reconcile`. Chunked so a bulk toggle over a large sku list costs a handful of publishes
+    rather than one per row.
+    """
+    if not refs:
+        return
+    try:
+        from django_lookup.constants import REFRESH_TASK_BATCH
+        from django_lookup.tasks import refresh_fingerprints
+    except (ImportError, RuntimeError):
+        # RuntimeError alongside ImportError: Django raises it (not ImportError) when a module is on
+        # PYTHONPATH but absent from INSTALLED_APPS — the common multi-repo dev-checkout shape.
+        return
+    iterator = iter(refs)
+    while chunk := list(islice(iterator, REFRESH_TASK_BATCH)):
+        try:
+            refresh_fingerprints.delay(KIND, chunk)
+        except Exception:  # noqa: BLE001 — broker errors must not break a catalog write
+            logger.warning("lookup: could not enqueue a fingerprint refresh for %d refs", len(chunk), exc_info=True)
+
+
 def signal_specs() -> list[dict]:
-    """Senders django-lookup connects so a fingerprint follows the catalog (see its signals.py)."""
+    """Senders django-lookup connects so a fingerprint follows the catalog (see its signals.py).
+
+    The `post_delete` legs matter as much as the saves: deleting the channel Product re-points
+    `_display_product`, and clearing a name/brand/mpn attribute changes what the fingerprint says.
+    Without them a deleted row keeps generating false duplicate hits until the next full backfill.
+
+    They cost nothing extra in delete performance. A `post_delete` receiver normally disables
+    Django's fast-delete for that model, which would be a bad trade on `ProductAttribute`
+    (`product_service._set_product_attributes` bulk-deletes on every product update) — but
+    `signals/handlers.py` already connects matrix-sync receivers to both senders, so those models
+    have not been fast-deletable for a long time. The only added cost is one Celery publish.
+
+    `queryset.update()` writers emit no signals at all and must enqueue by hand — see
+    `product_service.bulk_update_products`.
+    """
     return [
         {"model": "django_pim.RealProduct", "signal": "post_save", "ref": lambda rp: rp.sku},
         {"model": "django_pim.Product", "signal": "post_save", "ref": _ref_for_product},
         {"model": "django_pim.ProductAttribute", "signal": "post_save", "ref": _ref_for_attribute},
         {"model": "django_pim.ProductPicture", "signal": "post_save", "ref": _ref_for_picture},
+        {"model": "django_pim.Product", "signal": "post_delete", "ref": _ref_for_product},
+        {"model": "django_pim.ProductAttribute", "signal": "post_delete", "ref": _ref_for_attribute},
         {"model": "django_pim.ProductPicture", "signal": "post_delete", "ref": _ref_for_picture},
     ]
 
@@ -140,7 +230,7 @@ def _ref_for_product(product) -> str | None:
     No `watch`: the compensating send skips `pre_save`, so a watched-column snapshot would be stale
     from the product's own save and swallow exactly the event this exists to catch.
     """
-    return product.real_product.sku if product.real_product_id else None
+    return _sku_of(product) if product.real_product_id else None
 
 
 def _fingerprinted_feature_ids() -> frozenset[int]:
@@ -163,13 +253,34 @@ def _fingerprinted_feature_ids() -> frozenset[int]:
 def _ref_for_attribute(attribute) -> str | None:
     if attribute.feature_id not in _fingerprinted_feature_ids():
         return None
-    return attribute.product.real_product.sku
+    return _sku_of_child(attribute)
 
 
 def _ref_for_picture(product_picture) -> str | None:
     if product_picture.picture_role != PictureRoleEnum.MAIN:
         return None
-    return product_picture.product.real_product.sku
+    return _sku_of_child(product_picture)
+
+
+def _sku_of(product) -> str | None:
+    """`product.real_product.sku`, or None when that row is already gone.
+
+    `ref()` must never raise — lookup calls it from a signal handler, so a `DoesNotExist` here
+    would abort the delete that triggered it. Django's collector deletes children before parents,
+    so the parent is normally still readable on `post_delete`, but "normally" is not a contract.
+    """
+    try:
+        return product.real_product.sku
+    except ObjectDoesNotExist:
+        return None
+
+
+def _sku_of_child(row) -> str | None:
+    """Same guard, one level deeper — `row.product.real_product.sku` for attributes and pictures."""
+    try:
+        return row.product.real_product.sku
+    except ObjectDoesNotExist:
+        return None
 
 
 def _require(ref: str) -> RealProduct:

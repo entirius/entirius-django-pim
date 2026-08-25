@@ -35,6 +35,9 @@ from .channel_service import get_default_channel
 from .feature_service import resolve_feature_name
 from .gap_definition_service import validate_severity
 from .inheritance_service import get_default_product_for
+from .lookup_provider import enqueue_refresh as _enqueue_lookup_refresh
+from .lookup_provider import touch_real_product as _touch_real_product
+from .lookup_provider import touch_real_products as _touch_real_products
 
 # Maps API ordering params to actual DB field paths.
 ORDERING_MAP: dict[str, str] = {
@@ -513,6 +516,11 @@ def update_product(channel_idx: str, sku: str, **fields) -> Product:
 
         post_save.send(sender=Product, instance=product, created=False, raw=False, update_fields=None)
 
+    if attributes_changed or product_changed or inheritance_changed:
+        # Display data the fingerprint reads changed on Product/ProductAttribute, which do not
+        # touch RealProduct.updated_at — keep `lookup_backfill --since` honest.
+        _touch_real_product(product.real_product_id)
+
     _propagate_if_default(product, fields)
     return product
 
@@ -528,7 +536,9 @@ def delete_product(channel_idx: str, sku: str) -> dict:
     """
     channel = Channel.objects.get(idx=channel_idx)
     product = Product.objects.filter(shop=channel, real_product__sku=sku).get()
+    real_product_id = product.real_product_id
     _count, deleted = product.delete()
+    _touch_real_product(real_product_id)
     return {"deleted": dict(deleted)}
 
 
@@ -556,7 +566,18 @@ def bulk_update_products(
     if visibility is not None:
         update_fields["visibility"] = visibility
 
+    if is_enabled is not None:
+        # Read the skus BEFORE the update: `products` is a lazy queryset, and the rows still match
+        # it afterwards, but resolving it first keeps the refs stable if that ever stops holding.
+        toggled_skus = list(products.values_list("real_product__sku", flat=True))
     updated = products.update(**update_fields) if update_fields else products.count()
+
+    if is_enabled is not None:
+        # `queryset.update()` fires no signals, and `is_enabled` decides which channel Product a
+        # lookup fingerprint describes (`lookup_provider._display_product`) — so nudge lookup by
+        # hand. `visibility` needs no nudge: nothing in the fingerprint reads it.
+        _touch_real_products(toggled_skus)
+        _enqueue_lookup_refresh(toggled_skus)
 
     if category_idxs_add:
         categories = list(ProductCategory.objects.filter(shop=channel, idx__in=category_idxs_add))

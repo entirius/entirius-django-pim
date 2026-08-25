@@ -181,6 +181,23 @@ class TestBuildQuery:
 
         assert lookup_bridge.build_query(request, "pl") == {"limit": lookup_bridge.LOOKUP_LIMIT}
 
+    def test_long_text_is_capped_to_the_lookup_schema_limits(self):
+        """`LookupQuery` rejects name > 500 / brand, mpn > 255. Without a cap the whole advisory
+        check degrades to `lookup_failed` plus a traceback — for exactly the long-titled products
+        most likely to BE duplicates."""
+        request = _request(
+            attributes=[
+                _attribute("name", value_txt_t9n={"pl": "W" * 900}),
+                _attribute("brand", value_txt_t9n={"pl": "B" * 400}),
+                _attribute("mpn", value_txt="M" * 400),
+            ],
+        )
+
+        payload = lookup_bridge.build_query(request, "pl")
+
+        assert (len(payload["name"]), len(payload["brand"]), len(payload["mpn"])) == (500, 255, 255)
+        assert payload["name"].startswith("WWW")
+
     def test_ignores_attributes_of_other_features(self):
         request = _request(attributes=[_attribute("color", value_txt="red")])
 
@@ -217,6 +234,17 @@ class TestBuildQueryContract:
             "GSR 12V-35",
         )
         assert (query.attrs.weight, query.attrs.width) == (Decimal("1.50"), Decimal("30.00"))
+
+    def test_an_over_long_name_still_validates_instead_of_raising(self):
+        """The regression the caps exist for — assert against the real schema, not our copy of it."""
+        pytest.importorskip("django_lookup")
+        from django_lookup.schemas.requests.lookup import LookupQuery
+
+        request = _request(attributes=[_attribute("name", value_txt_t9n={"pl": "W" * 900})])
+
+        query = LookupQuery(**lookup_bridge.build_query(request, "pl"))
+
+        assert len(query.name) == 500
 
 
 def test_a_host_without_a_registered_provider_is_a_silent_no_op(monkeypatch):

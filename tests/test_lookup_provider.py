@@ -291,3 +291,96 @@ def test_renaming_a_product_refreshes_its_fingerprint(product, refreshed_refs):
 
     assert refreshed_refs == ["SKU-1"]
     assert lookup_provider.get_item("SKU-1").name_by_lang == {"pl": "Szlifierka"}
+
+
+class TestDeleteFreshness:
+    """`post_delete` legs of `signal_specs` — a deleted row must not keep answering lookups.
+
+    These senders cost nothing extra in delete performance: `signals/handlers.py` already connects
+    matrix-sync receivers to Product and ProductAttribute, so neither has been fast-deletable for a
+    long time.
+    """
+
+    def test_delete_senders_are_declared(self):
+        declared = {(spec["model"], spec["signal"]) for spec in lookup_provider.signal_specs()}
+
+        assert ("django_pim.Product", "post_delete") in declared
+        assert ("django_pim.ProductAttribute", "post_delete") in declared
+
+    def test_ref_is_none_when_the_parent_row_is_already_gone(self, product):
+        """`ref()` runs inside a signal handler, so a `DoesNotExist` here would abort the delete.
+
+        The instance must come back from the DB *without* `select_related`: Django caches a
+        traversed FK on the instance, so an in-memory `attribute.product` would answer from memory
+        and never reach the guard. A queryset delete hands handlers exactly this uncached shape.
+        """
+        _attribute(product, "brand", t9n={"pl": "Bosch"}, scope=FeatureScopeEnum.SYSTEM)
+        ProductPicture.objects.create(product=product, picture=_picture(), picture_role=PictureRoleEnum.MAIN)
+        attribute = ProductAttribute.objects.get(product=product, feature__idx="brand")
+        picture_link = ProductPicture.objects.get(product=product)
+
+        product.delete()
+
+        assert lookup_provider._ref_for_attribute(attribute) is None
+        assert lookup_provider._ref_for_picture(picture_link) is None
+
+
+class TestSinceTracksDisplayData:
+    """`iter_items(since=...)` filters `RealProduct.updated_at`, which display-data writes do not
+    bump on their own — the service write paths call `touch_real_product` so `--since` is honest."""
+
+    def test_touch_moves_the_timestamp(self, product):
+        before = product.real_product.updated_at
+
+        lookup_provider.touch_real_product(product.real_product_id)
+
+        product.real_product.refresh_from_db()
+        assert product.real_product.updated_at > before
+
+    def test_touch_is_a_noop_without_a_real_product(self):
+        lookup_provider.touch_real_product(None)  # must not raise — callers pass an FK id that may be None
+
+    def test_a_picture_change_makes_the_product_visible_to_since(self, product):
+        """The regression this exists for: a picture swap left `--since` blind to the row."""
+        from django.utils import timezone
+
+        cutoff = timezone.now()
+        assert list(lookup_provider.iter_items(since=cutoff)) == []
+
+        from django_pim.services.product_picture_service import link_picture_to_product
+
+        link_picture_to_product(product.shop.idx, product.real_product.sku, _picture("blue").pk, picture_role="main")
+
+        assert [item.ref for item in lookup_provider.iter_items(since=cutoff)] == [product.real_product.sku]
+
+
+class TestBulkToggleFreshness:
+    """`bulk_update_products` writes through `queryset.update()`, which fires no signals at all.
+
+    `is_enabled` is what `_display_product` sorts on, so a bulk toggle re-points which channel
+    Product a fingerprint describes — name, brand, mpn and picture all follow it.
+    """
+
+    def test_enabling_in_bulk_enqueues_a_refresh_and_touches_the_timestamp(self, product, monkeypatch):
+        from django_pim.services import product_service
+
+        calls = []
+        monkeypatch.setattr(product_service, "_enqueue_lookup_refresh", calls.append)
+        before = product.real_product.updated_at
+
+        product_service.bulk_update_products(channel_idx="main", skus=["SKU-1"], is_enabled=False)
+
+        assert calls == [["SKU-1"]]
+        product.real_product.refresh_from_db()
+        assert product.real_product.updated_at > before
+
+    def test_a_visibility_only_change_needs_no_refresh(self, product, monkeypatch):
+        """Nothing in the fingerprint reads `visibility` — nudging lookup for it would be churn."""
+        from django_pim.services import product_service
+
+        calls = []
+        monkeypatch.setattr(product_service, "_enqueue_lookup_refresh", calls.append)
+
+        product_service.bulk_update_products(channel_idx="main", skus=["SKU-1"], visibility=1)
+
+        assert calls == []
