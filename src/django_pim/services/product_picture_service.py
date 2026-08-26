@@ -17,6 +17,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from ..models import Channel, Picture, PictureRoleEnum, Product, ProductPicture
+from .lookup_provider import touch_real_product as _touch_real_product
 
 # Maps API ordering params to actual DB field paths.
 ORDERING_MAP: dict[str, str] = {
@@ -175,6 +176,7 @@ def link_picture_to_product(
         alt_text_t9n=alt_text_t9n or {},
     )
 
+    _touch_real_product(product.real_product_id)
     return ProductPicture.objects.select_related("picture", "language").get(pk=pp.pk)
 
 
@@ -197,6 +199,7 @@ def update_product_picture(channel_idx: str, sku: str, pk: int, **fields: object
             setattr(pp, field, value)
     pp.save()
 
+    _touch_real_product(product.real_product_id)
     return ProductPicture.objects.select_related("picture", "language").get(pk=pp.pk)
 
 
@@ -211,6 +214,7 @@ def unlink_picture_from_product(channel_idx: str, sku: str, pk: int) -> dict:
     product = Product.objects.select_related("real_product").get(shop=channel, real_product__sku__iexact=sku)
     pp = ProductPicture.objects.get(product=product, pk=pk)
     _, deleted_detail = pp.delete()
+    _touch_real_product(product.real_product_id)
     result = {}
     for key, count in deleted_detail.items():
         simple_name = key.split(".")[-1] if "." in key else key

@@ -7,7 +7,7 @@ from enum import IntEnum
 from django.db import models
 from int_enum_choices import IntEnumChoices
 
-from .product_link_type import ProductLinkType  # noqa: F401  back-compat re-export
+from .product_link_type import ProductLinkType  # noqa: F401  — re-export for backward compatibility
 
 
 class ProductLinkTypeEnum(IntEnum):

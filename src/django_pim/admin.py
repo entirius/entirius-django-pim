@@ -642,6 +642,22 @@ class ProductVideoAdmin(admin.ModelAdmin):
     autocomplete_fields = ["product", "video"]
 
 
+class ProductVariantGroupProductInline(admin.TabularInline):
+    model = ProductVariantGroupProduct
+    fields = ["product", "position"]
+    autocomplete_fields = ["product"]
+    extra = 0
+
+
+class ProductVariantGroupAdmin(admin.ModelAdmin):
+    list_display = ("pk", "shop", "feature", "name", "db_created", "db_modified")
+    list_filter = ("shop", "feature")
+    search_fields = ["name", "group_products__product__real_product__sku"]
+    autocomplete_fields = ["feature"]
+    inlines = [ProductVariantGroupProductInline]
+    ordering = ("pk",)
+
+
 admin.site.register(Channel, ChannelAdmin)
 admin.site.register(PimSettings, PimSettingsAdmin)
 admin.site.register(ProductSimple, ProductSimpleAdmin)
@@ -715,3 +731,6 @@ class GapExemptionAdmin(admin.ModelAdmin):
 admin.site.register(GapDefinition, GapDefinitionAdmin)
 admin.site.register(GapFinding, GapFindingAdmin)
 admin.site.register(GapExemption, GapExemptionAdmin)
+
+# Product Variant Groups
+admin.site.register(ProductVariantGroup, ProductVariantGroupAdmin)

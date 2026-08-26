@@ -33,6 +33,22 @@ def _clear_killswitch_cache():
     cache.delete(GAPS_CACHE_KEY)
 
 
+@pytest.fixture(autouse=True)
+def _clear_lookup_provider_cache():
+    """Same leak, same fix, for `lookup_provider._fingerprinted_feature_ids`'s 60s cache.
+
+    `Feature.id` is DB-assigned; a stale cached id set from an earlier (rolled-back) test would
+    make `_ref_for_attribute` short-circuit incorrectly for the current test's features.
+    """
+    from django.core.cache import cache
+
+    from django_pim.services.lookup_provider import FINGERPRINTED_FEATURE_IDS_CACHE_KEY
+
+    cache.delete(FINGERPRINTED_FEATURE_IDS_CACHE_KEY)
+    yield
+    cache.delete(FINGERPRINTED_FEATURE_IDS_CACHE_KEY)
+
+
 _user_counter = 0
 
 

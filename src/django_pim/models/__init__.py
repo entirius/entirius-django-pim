@@ -41,6 +41,7 @@ from .product_links import ProductLink, ProductLinkTypeChoices, ProductLinkTypeE
 from .product_picture import PictureRole, PictureRoleEnum, ProductPicture
 from .product_price import ProductPrice
 from .product_simple import *
+from .product_variant_group import ProductVariantGroup, ProductVariantGroupProduct
 from .product_video import ProductVideo, VideoRole, VideoRoleEnum
 from .real_product import KindOfProductClass, KindOfProductEnum, RealProduct, normalize_sku, validate_ean, validate_sku
 from .thumb import Thumb
