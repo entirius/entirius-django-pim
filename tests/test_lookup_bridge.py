@@ -53,6 +53,7 @@ class _Hit:
     kind: str
     ref: str
     similarity: int
+    match: str
     score: int
     decision: str
     reasons: list = field(default_factory=list)
@@ -71,7 +72,8 @@ def _hit(ref="ATLAS-1", kind="atlas_source_product"):
     return _Hit(
         kind=kind,
         ref=ref,
-        similarity=60,
+        similarity=100,
+        match="exact",
         score=82,
         decision="review",
         reasons=[
@@ -311,7 +313,7 @@ class TestPossibleDuplicates:
         assert (duplicates, warnings) == ([], [lookup_bridge.WARNING_LOOKUP_FAILED])
 
     def test_a_hit_that_does_not_match_the_contract_is_a_warning_not_a_crash(self, monkeypatch):
-        broken = _Hit(kind="pim_product", ref="X", similarity=1, score=1, decision="review", basic={})
+        broken = _Hit(kind="pim_product", ref="X", similarity=1, match="similar", score=1, decision="review", basic={})
         _install_fake_lookup(monkeypatch, lambda query: _CheckResult("review", {}, [broken]))
 
         duplicates, warnings = lookup_bridge.possible_duplicates(_request(ean="5901234123457"), "pl")
