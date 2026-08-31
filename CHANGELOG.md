@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.2.1 — 2026-08-31
 
 - `possible_duplicates[]` mirrors the django-lookup hit shape of 0.2.0: a new `match` field
   (`exact` | `similar` | `none`) and `similarity` now means relevance to the query as given (0-100),
