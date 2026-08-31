@@ -8,8 +8,8 @@ django-lookup is optional, so PIM never imports it to declare a schema (a Pydant
 resolved at class definition time, which would turn the module into a hard dependency and make the
 OpenAPI document depend on the deployment). The shape is mirrored here the same way
 `services/lookup_provider.py` mirrors the provider contract; `django_lookup.schemas.responses.lookup`
-is authoritative for the field names. `kind` and `decision` stay plain strings because their enums
-live in the optional module.
+is authoritative for the field names. `kind`, `match` and `decision` stay plain strings because their
+enums live in the optional module.
 """
 
 from pydantic import BaseModel, Field
@@ -44,7 +44,17 @@ class PossibleDuplicateResponse(BaseModel):
 
     kind: str = Field(description="Catalog the candidate comes from", examples=["pim_product", "atlas_source_product"])
     ref: str = Field(description="Reference inside that catalog", examples=["PROD-001"])
-    similarity: int = Field(description="Strongest single piece of evidence, 0-100", examples=[60])
+    similarity: int = Field(
+        description=(
+            "Relevance to the query as given, 0-100: a photo-only query is judged by the photo, a text-only "
+            "query by identifier/name, both by a fixed blend. Not the dedup score."
+        ),
+        examples=[100],
+    )
+    match: str = Field(
+        description="`exact`: same identifier or the same picture file; `similar`: something agreed; `none`: nothing did",
+        examples=["exact"],
+    )
     score: int = Field(description="Total evidence, clamped to 0-100", examples=[82])
     decision: str = Field(description="Verdict for this candidate: match | review | no_match", examples=["review"])
     reasons: list[LookupReasonResponse] = Field(default_factory=list, description="Evidence, strongest first")

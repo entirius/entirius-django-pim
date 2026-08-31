@@ -48,12 +48,13 @@ class TestLookupHitShapeContract:
         # `observed` mirrors `Observed` as a plain dict[str, str] — its two keys are the contract.
         assert _field_names(Observed) == {"query", "candidate"}
 
-    def test_kind_and_decision_enums_are_str_subclasses(self):
-        """`kind`/`decision` are bare `str` here on purpose (their enums live in the optional
+    def test_kind_match_and_decision_enums_are_str_subclasses(self):
+        """`kind`/`match`/`decision` are bare `str` here on purpose (their enums live in the optional
         module — see the module docstring). Safe only as long as the real enums are str-valued.
         """
         pytest.importorskip("django_lookup")
-        from django_lookup.enums import DecisionAuto, FingerprintKind
+        from django_lookup.enums import DecisionAuto, FingerprintKind, MatchKind
 
         assert issubclass(FingerprintKind, str)
+        assert issubclass(MatchKind, str)
         assert issubclass(DecisionAuto, str)
