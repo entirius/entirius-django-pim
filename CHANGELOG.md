@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `Product.thumb_picture` read `picture.thumbs`, which does not exist — the reverse accessor
+  from `Picture` is `picture_thumbs` — so the property raised `AttributeError` on every call.
+  Same mistake as the `delete()` overrides fixed earlier in `models/picture.py` and
+  `models/files.py`.
+
 ## 3.2.1 — 2026-08-31
 
 - `possible_duplicates[]` mirrors the django-lookup hit shape of 0.2.0: a new `match` field
