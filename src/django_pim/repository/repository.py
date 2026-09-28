@@ -1045,7 +1045,9 @@ class DjangoPimRepository(ProcessLoggerMixin):
                 pc.name_t9n = self.replace_t9n(pc.name_t9n, self.locale, name)
             else:
                 pc.name_t9n = name_t9n
-            pc.description_t9n = description_t9n
+            for description_locale, description in (description_t9n or {}).items():
+                if description:
+                    pc.description_t9n = self.replace_t9n(pc.description_t9n or {}, description_locale, description)
 
             if not url_key_t9n.get(self.locale, None):
                 url_key = self.generate_url_key(name if name else idx, idx=idx, append_idx=True)
