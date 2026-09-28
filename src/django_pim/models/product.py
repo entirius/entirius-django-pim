@@ -278,7 +278,7 @@ class Product(models.Model):
         thumb_picture = self.pictures.filter(picture_role=PictureRoleEnum.MAIN).first()
         if thumb_picture is None:
             return None
-        thumb_picture = thumb_picture.picture.thumbs.all().first()
+        thumb_picture = thumb_picture.picture.picture_thumbs.all().first()
         if thumb_picture is None:
             return None
         return thumb_picture
