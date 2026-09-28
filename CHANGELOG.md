@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.2.2 — 2026-09-28
+
+- The category import (`DjangoPimRepository.category_update_or_create`) no longer replaces
+  `description_t9n` wholesale on update: incoming descriptions are merged per locale and empty
+  values are skipped, so an importer that sends `{locale: ""}` keeps descriptions entered in
+  the admin. A non-empty incoming value still overwrites its locale.
+- `Product.thumb_picture` read `picture.thumbs`, which does not exist (the reverse accessor
+  from `Picture` is `picture_thumbs`), so the property raised `AttributeError` on every call and
+  category listings returned `thumbnail_url: null`. Same slip as the `delete()` overrides fixed
+  earlier in `models/picture.py` and `models/files.py`. Reported in #9.
+
 ## 3.2.1 — 2026-08-31
 
 - `possible_duplicates[]` mirrors the django-lookup hit shape of 0.2.0: a new `match` field

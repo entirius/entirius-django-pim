@@ -478,7 +478,7 @@ wheels = [
 
 [[package]]
 name = "entirius-django-pim"
-version = "3.2.1"
+version = "3.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "celery" },
