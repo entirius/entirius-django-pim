@@ -10,6 +10,7 @@ from django_utils.api.responses import PaginatedResponse, Response
 
 from django_pim.filters import CategoryFilter
 from django_pim.models import Channel, Product, ProductCategory, ProductVisibility
+from django_pim.views.api_viewer.auth import staff_required
 
 
 def category_to_repr(channel: Channel, params: dict, instance: ProductCategory) -> dict:
@@ -45,6 +46,7 @@ def category_to_repr(channel: Channel, params: dict, instance: ProductCategory) 
 
 
 @api_view
+@staff_required
 @require_http_method("GET")
 def view_category(request, idx=None, shop_idx=None, *args, **kwargs):
     params = request.GET

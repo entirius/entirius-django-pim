@@ -15,6 +15,7 @@ from django_utils.api.responses import PaginatedResponse, Response
 
 from django_pim.filters import FeatureFilter
 from django_pim.models import Attribute, Channel, Feature, FeatureScopeEnum, Product, ProductCategory
+from django_pim.views.api_viewer.auth import staff_required
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def feature_to_repr(params: dict, instance: Feature, channel: Channel = None) ->
 
 
 @api_view
+@staff_required
 @require_http_method("GET")
 def view_features(request, idx=None, shop_idx=None, *args, **kwargs):
     _to_repr = feature_to_repr
@@ -109,6 +111,7 @@ def attribute_to_representation(instance, channel, params):
 
 
 @api_view
+@staff_required
 @require_http_method("GET")
 def view_feature_attributes(request, shop_idx=None, idx=None, *args, **kwargs):
     try:
@@ -127,6 +130,7 @@ def view_feature_attributes(request, shop_idx=None, idx=None, *args, **kwargs):
 
 
 @api_view
+@staff_required
 @require_http_method("GET")
 def view_feature_attribute(request, shop_idx=None, idx=None, attr_idx=None, *args, **kwargs):
     try:
@@ -185,6 +189,7 @@ def update_feature_attribute_extension(request, idx=None, attr_idx=None, *args, 
 
 @csrf_exempt
 @api_view
+@staff_required
 @require_http_method("GET", "PUT")
 def view_attribute_extension(request, idx=None, attr_idx=None, *args, **kwargs):
     if request.method == "GET":
