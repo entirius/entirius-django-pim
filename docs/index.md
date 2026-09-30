@@ -37,6 +37,7 @@ See [Inheritance](./inheritance/) for setup, API, and override behavior.
 ## Related Modules
 
 - **[Quality Gaps](./quality/)** — what each product is missing, per channel and language
+- **[Required Features](./required-features/)** — per-feature-set required flags, opt-in enforcement and strict create on product create
 - **[PIM CSV](./pim-csv/)** — bulk CSV importer for PIM data
 - **[PIM Translator](./pim-translator/)** — AI translation bridge for PIM entities
 - **[Database Diagrams](./erd/)** — auto-generated ER diagrams for all PIM models

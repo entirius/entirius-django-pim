@@ -17,18 +17,21 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from ....models import AttributesGroup, Feature, FeatureInFeatureSet, FeatureSet
+from ....models import AttributesGroup, Channel, Feature, FeatureInFeatureSet, FeatureSet
 from ....schemas import (
     FeatureInSetResponse,
     FeatureSetListResponse,
     FeatureSetResponse,
     FeaturesInSetListResponse,
+    RequiredFeatureListResponse,
+    RequiredFeatureResponse,
 )
 from ....schemas.requests import (
     BulkAddFeaturesRequest,
     BulkRemoveFeaturesRequest,
     CreateFeatureSetRequest,
     ReorderFeaturesInSetRequest,
+    SetFeatureRequiredRequest,
     UpdateFeatureSetRequest,
 )
 from ....services import (
@@ -39,10 +42,12 @@ from ....services import (
     delete_feature_set,
     get_channel_language,
     get_feature_set_by_idx,
+    get_required_features,
     list_feature_sets,
     list_features_in_feature_set,
     reorder_features_in_set,
     resolve_attributes_group_name,
+    set_feature_required_override,
     update_feature_set,
 )
 from ..errors import internal_error
@@ -58,6 +63,18 @@ def _build_feature_set_response(feature_set: FeatureSet) -> FeatureSetResponse:
         desc=feature_set.desc,
         is_default=feature_set.is_default,
         feature_count=feature_set.feature_count,
+    )
+
+
+def _build_feature_in_set_response(fis: FeatureInFeatureSet, language: str | None) -> FeatureInSetResponse:
+    group = fis.attributes_group
+    return FeatureInSetResponse(
+        position=fis.position,
+        attributes_group_idx=group.idx if group else None,
+        attributes_group_name=resolve_attributes_group_name(group) if group else None,
+        is_required=fis.effective_is_required,
+        is_required_override=fis.is_required,
+        feature=build_feature_response(fis.feature, language=language),
     )
 
 
@@ -303,17 +320,7 @@ class FeatureSetViewSet(viewsets.ViewSet):
             paginator = AdminPageNumberPagination()
             paginated_features_in_set = paginator.paginate_queryset(features_in_set_qs, request)
 
-            feature_in_set_responses = [
-                FeatureInSetResponse(
-                    position=fis.position,
-                    attributes_group_idx=(fis.attributes_group.idx if fis.attributes_group else None),
-                    attributes_group_name=(
-                        resolve_attributes_group_name(fis.attributes_group) if fis.attributes_group else None
-                    ),
-                    feature=build_feature_response(fis.feature, language=lang),
-                )
-                for fis in paginated_features_in_set
-            ]
+            feature_in_set_responses = [_build_feature_in_set_response(fis, lang) for fis in paginated_features_in_set]
 
             response_data = FeaturesInSetListResponse(
                 count=features_in_set_qs.count(),
@@ -332,7 +339,10 @@ class FeatureSetViewSet(viewsets.ViewSet):
     @extend_schema(
         tags=["Feature Sets"],
         summary="Add features to feature set",
-        description="Bulk-add features to a feature set. Features already present are ignored (idempotent).",
+        description=(
+            "Bulk-add features to a feature set. Each entry may carry `is_required` "
+            "(per-set override of Feature.is_required; omit or null to inherit)."
+        ),
         parameters=[
             OpenApiParameter(
                 name="idx", location=OpenApiParameter.PATH, required=True, type=str, description="FeatureSet idx"
@@ -350,23 +360,18 @@ class FeatureSetViewSet(viewsets.ViewSet):
 
         try:
             entries = [
-                {"feature_idx": f.feature_idx, "position": f.position, "attributes_group_idx": f.attributes_group_idx}
+                {
+                    "feature_idx": f.feature_idx,
+                    "position": f.position,
+                    "attributes_group_idx": f.attributes_group_idx,
+                    "is_required": f.is_required,
+                }
                 for f in data.features
             ]
             results = bulk_add_features_to_set(feature_set_idx=idx, features=entries)
             lang = None
 
-            response_items = [
-                FeatureInSetResponse(
-                    position=fis.position,
-                    attributes_group_idx=(fis.attributes_group.idx if fis.attributes_group else None),
-                    attributes_group_name=(
-                        resolve_attributes_group_name(fis.attributes_group) if fis.attributes_group else None
-                    ),
-                    feature=build_feature_response(fis.feature, language=lang),
-                )
-                for fis in results
-            ]
+            response_items = [_build_feature_in_set_response(fis, lang) for fis in results]
 
             return Response([item.model_dump() for item in response_items], status=status.HTTP_201_CREATED)
 
@@ -438,5 +443,86 @@ class FeatureSetViewSet(viewsets.ViewSet):
             return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         except AttributesGroup.DoesNotExist:
             return Response({"detail": "Attributes group not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return internal_error(e)
+
+    @extend_schema(
+        tags=["Feature Sets"],
+        summary="Set required override for a feature in a feature set",
+        description=(
+            "Set the per-set required override of one membership: `true`/`false` overrides "
+            "Feature.is_required for this set only, `null` clears the override (inherit). "
+            "The `is_required` key is required. Rejected (400) for SYSTEM-scope features."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="idx", location=OpenApiParameter.PATH, required=True, type=str, description="FeatureSet idx"
+            ),
+            OpenApiParameter(
+                name="feature_idx", location=OpenApiParameter.PATH, required=True, type=str, description="Feature idx"
+            ),
+        ],
+        request=SetFeatureRequiredRequest,
+        responses={200: FeatureInSetResponse, 400: {"description": "Validation error or SYSTEM-scope feature"}},
+    )
+    def set_feature_required(self, request: Request, idx: str, feature_idx: str, **kwargs: object) -> Response:
+        """Set or clear the per-set required override of a feature in a set."""
+        try:
+            data = SetFeatureRequiredRequest(**request.data)
+        except ValidationError as exc:
+            raise_pydantic_as_drf(exc)
+
+        try:
+            membership = set_feature_required_override(idx, feature_idx, data.is_required)
+            return Response(_build_feature_in_set_response(membership, None).model_dump(), status=status.HTTP_200_OK)
+        except FeatureSet.DoesNotExist:
+            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+        except (Feature.DoesNotExist, FeatureInFeatureSet.DoesNotExist):
+            return Response(
+                {"detail": f"Feature '{feature_idx}' is not in feature set '{idx}'"}, status=status.HTTP_404_NOT_FOUND
+            )
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return internal_error(e)
+
+    @extend_schema(
+        tags=["Feature Sets"],
+        summary="List required features of a feature set",
+        description=(
+            "Features a product of this set must carry when required-feature enforcement is on: "
+            "memberships whose effective flag is true, plus SYSTEM-scope features flagged required. "
+            "`source` says where the requirement comes from. Not paginated."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="channel_idx",
+                location=OpenApiParameter.PATH,
+                required=False,
+                type=str,
+                description="Channel identifier (optional, for validation and feature-name language)",
+            ),
+            OpenApiParameter(
+                name="idx", location=OpenApiParameter.PATH, required=True, type=str, description="FeatureSet idx"
+            ),
+        ],
+        responses={200: RequiredFeatureListResponse},
+    )
+    def required_features(self, request: Request, idx: str, channel_idx: str | None = None) -> Response:
+        """List the required features of a feature set with their source."""
+        try:
+            if channel_idx is not None:
+                Channel.objects.get(idx=channel_idx)
+            lang = get_channel_language(channel_idx)
+            required = get_required_features(idx)
+            items = [
+                RequiredFeatureResponse(feature=build_feature_response(feature, language=lang), source=source)
+                for feature, source in required
+            ]
+            return Response([item.model_dump() for item in items], status=status.HTTP_200_OK)
+        except FeatureSet.DoesNotExist:
+            return Response({"detail": f"Feature set with idx '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Channel.DoesNotExist:
+            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return internal_error(e)

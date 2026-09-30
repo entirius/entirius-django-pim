@@ -34,9 +34,9 @@ class RealProduct(models.Model):
     kind_of_product = models.PositiveSmallIntegerField(
         choices=KindOfProductClass.choices(), blank=False, null=False, default=KindOfProductEnum.ProductPhysical
     )
-    # weight unit is defined in settings.PIM_weight_UNIT
+    # weight is in the PIM mass base unit: settings.DEFAULT_MASS_UNIT (grams by default). No conversion.
     weight = models.DecimalField(blank=True, null=True, max_digits=12, decimal_places=2)
-    # dimensions unit is defined in settings.PIM_DIMENSIONS_UNIT
+    # width/height/deep are in settings.DEFAULT_LENGTH_UNIT (millimetres by default). No conversion.
     width = models.DecimalField(blank=True, null=True, max_digits=12, decimal_places=2)
     height = models.DecimalField(blank=True, null=True, max_digits=12, decimal_places=2)
     deep = models.DecimalField(blank=True, null=True, max_digits=12, decimal_places=2)

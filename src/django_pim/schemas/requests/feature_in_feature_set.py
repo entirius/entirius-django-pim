@@ -32,6 +32,14 @@ class FeatureInSetEntry(BaseModel):
         description=("AttributesGroup idx to assign this feature to within the set. Null means no group assignment."),
         examples=["general", "dimensions", None],
     )
+    is_required: bool | None = Field(
+        None,
+        description=(
+            "Per-set override of Feature.is_required. Null (default) inherits the feature's flag; "
+            "true/false applies to this set only. Rejected for SYSTEM-scope features."
+        ),
+        examples=[True, False, None],
+    )
 
 
 class BulkAddFeaturesRequest(BaseModel):
@@ -85,4 +93,17 @@ class BulkRemoveFeaturesRequest(BaseModel):
         ),
         examples=[["color", "size"], ["material"]],
         min_length=1,
+    )
+
+
+class SetFeatureRequiredRequest(BaseModel):
+    """Request schema for setting the per-set required override of one feature in a set."""
+
+    is_required: bool | None = Field(
+        ...,
+        description=(
+            "true/false overrides Feature.is_required for this set only; null clears the override "
+            "(inherit the feature's flag). The key is required. Rejected for SYSTEM-scope features."
+        ),
+        examples=[True, False, None],
     )

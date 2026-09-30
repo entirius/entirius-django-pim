@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.3.0 — 2026-09-30
+
+- **Required per feature set.** New nullable `FeatureInFeatureSet.is_required` (migration `0063`):
+  `null` inherits `Feature.is_required`, `true`/`false` overrides it for that set only. Effective flag:
+  `FeatureInFeatureSet.effective_is_required`, `FeatureInFeatureSet.objects.effective_required()`. An
+  override on a SYSTEM-scope feature is rejected (`ValueError`, 400 in the API); SYSTEM features flagged
+  required apply to every set. New services in `feature_set_service`: `get_required_features`,
+  `required_feature_idxs_by_set`, `set_feature_required_override`; `bulk_add_features_to_set` accepts
+  `is_required`; reorder leaves the override alone. The customization reader
+  (`get_filtered_attributes`) uses the effective flag. Docs: `docs/required-features.md`. Reported in #10.
+- **Enforcement on create, off by default.** `create_product(..., enforce_required=None)`; `None` reads
+  `PIM_ENFORCE_REQUIRED_ON_CREATE` (default `False`) at call time. A create that leaves a required feature
+  without a value that would be stored raises `RequiredFeaturesMissingError` (new `django_pim.exceptions`,
+  not a `ValueError`; carries `feature_set_idx` and sorted `missing_feature_idxs`) before anything is written.
+  Attribute handling is split into a plan step and a write step so the check sees what will be stored;
+  `find_missing_required(feature_set, attributes)` is the public helper. Create only: updates are not
+  re-checked. Reported in #11.
+- **Strict create, off by default.** `create_product(..., strict=None)` / `PIM_STRICT_CREATE`: refuse with
+  `UnresolvedAttributesError` (not a `ValueError`) when the payload names an unknown feature, an unknown or
+  foreign option, or an unknown category, instead of silently dropping it.
+- **Admin API.** Features-in-set responses gain `is_required` (effective) and `is_required_override` (raw);
+  bulk-add entries accept `is_required`; new `PATCH feature-sets/{idx}/features/{feature_idx}/`
+  (`{"is_required": true|false|null}`) and `GET [{channel_idx}/]feature-sets/{idx}/required-features/`.
+  Product create answers the v2 400 envelope with `REQUIRED_FEATURE_MISSING`, `UNRESOLVED_ATTRIBUTE` and
+  `UNRESOLVED_CATEGORY` details. An unknown channel or feature set on create now answers 400 (was 404).
+- **Fix:** `create_product` stored an empty row for LENGTH, MASS and TEMPERATURE values (the write step
+  had no branch for them); `value_decimal` is now stored.
+- **`pim-thumbs-generate`** exits non-zero (with a summary) when `THUMBS_CONFIG` is unset, no pictures were
+  found, or every thumbnail failed; prints generated / present / failed counts; new `--missing-only`. The
+  resizer creates `TMP_DIR` when absent instead of failing every thumbnail.
+- **Units documented.** `RealProduct.weight` is in `DEFAULT_MASS_UNIT` (grams by default), `width`/`height`/`deep`
+  in `DEFAULT_LENGTH_UNIT` (millimetres). The model comment pointed at a setting that never existed; schema
+  descriptions and docs now state the units. No conversion, no data migration.
+- Dev lock refreshed: sqlparse 0.6.0, soupsieve 2.10, djangorestframework 3.18.1 (open Dependabot alerts).
+- **Upgrading:** run migration `0063`. Existing memberships inherit, so behaviour is unchanged.
+  Enforcement and strict create are off by default and become the default in 4.0.0.
+
 ## 3.2.2 — 2026-09-28
 
 - The category import (`DjangoPimRepository.category_update_or_create`) no longer replaces

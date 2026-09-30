@@ -106,3 +106,29 @@ python manage.py pim_inheritance enable --channel=default-europe --flags=attribu
 python manage.py pim_inheritance materialize --channel=default-europe
 python manage.py pim_inheritance audit
 ```
+
+
+---
+
+## pim-thumbs-generate
+
+Generate thumbnails for the pictures of a channel, from `THUMBS_CONFIG` (products) and
+`CATEGORY_THUMBS_CONFIG` (category pictures, skipped with `--sku`).
+
+```bash
+python manage.py pim-thumbs-generate default-europe
+python manage.py pim-thumbs-generate default-europe --sku=SKU-001
+python manage.py pim-thumbs-generate default-europe --missing-only
+python manage.py pim-thumbs-generate default-europe --clean
+```
+
+| Option | Effect |
+|--------|--------|
+| `--sku` | Only the pictures of one product |
+| `--missing-only` | Only pictures lacking at least one configured thumbnail |
+| `--clean` | Delete existing thumbnails of the selected pictures first |
+
+The last line is a summary: `Thumbnails: generated N, already present N, failed N (pictures found: N)`.
+The command exits non-zero when `THUMBS_CONFIG` is not set, when it found no pictures, or when every
+thumbnail it tried failed. A run where only some thumbnails fail still exits 0; read the `failed` count.
+With `--missing-only` and nothing missing it exits 0 and says so. The resizer creates `TMP_DIR` when it is absent.

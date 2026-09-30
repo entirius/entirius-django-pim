@@ -48,9 +48,12 @@ from .feature_set_service import (
     create_feature_set,
     delete_feature_set,
     get_feature_set_by_idx,
+    get_required_features,
     list_feature_sets,
     list_features_in_feature_set,
     reorder_features_in_set,
+    required_feature_idxs_by_set,
+    set_feature_required_override,
     update_feature_set,
 )
 from .files_category_service import (
@@ -212,6 +215,9 @@ __all__ = [
     "bulk_add_features_to_set",
     "bulk_remove_features_from_set",
     "reorder_features_in_set",
+    "required_feature_idxs_by_set",
+    "set_feature_required_override",
+    "get_required_features",
     "list_attributes",
     "get_attribute_by_composite_key",
     "list_attributes_for_feature",
