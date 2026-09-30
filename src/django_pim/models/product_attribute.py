@@ -308,16 +308,14 @@ class ProductAttributeManager(EnhanceManager):
         attr_idx_list = self.unpack_nested_list(attr_idx_list)
 
         # Wszystkie wymagane featury do customizacji
-        all_needed_feature_select = list(
-            FeatureInFeatureSet.objects.filter(
-                feature_set=product_custom.customization_feature_set,
-                feature__feature_type__in=[FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT],
-            ).values_list("feature__idx", flat=True)
+        customization_memberships = FeatureInFeatureSet.objects.filter(
+            feature_set=product_custom.customization_feature_set,
+            feature__feature_type__in=[FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT],
         )
+        all_needed_feature_select = list(customization_memberships.values_list("feature__idx", flat=True))
 
-        features_required = Feature.objects.filter(idx__in=all_needed_feature_select, is_required=True).values_list(
-            "idx", flat=True
-        )
+        # Effective flag: the per-set override when set, else Feature.is_required.
+        features_required = customization_memberships.effective_required().values_list("feature__idx", flat=True)
 
         # Wszystkie wybrane featury do customizacji
         chosen_product_attr_queryset = Attribute.objects.filter(
