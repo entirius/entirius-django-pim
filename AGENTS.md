@@ -169,7 +169,7 @@ src/django_pim/
 │   ├── pagination.py               #   AdminPageNumberPagination (20/page, max 100)
 │   └── permissions.py              #   IsAdminUser (is_staff or is_superuser)
 │
-├── views/api_viewer/               # Legacy v1 read-only views
+├── views/api_viewer/               # Legacy v1 views, staff JWT only
 │
 ├── schemas/
 │   ├── requests/                   # 13 files, ~25 Pydantic models (create/update/bulk)

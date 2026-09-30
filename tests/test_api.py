@@ -2,10 +2,21 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import factories
+
+
+class StaffClientMixin:
+    """The legacy viewer admits staff only: every request carries a staff JWT."""
+
+    def setUp(self):
+        super().setUp()
+        staff = User.objects.create_user(username="viewer-staff", password="x", is_staff=True)
+        self.client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {RefreshToken.for_user(staff).access_token}"
 
 
 # Create your tests here.
@@ -35,7 +46,7 @@ class SetupTestCase(TestCase):
         product = factories.ProductFactory()
 
 
-class FeatureSetApiTestCase(TestCase):
+class FeatureSetApiTestCase(StaffClientMixin, TestCase):
     def setUp(self) -> None:
         self.shop = factories.ShopFactory()
         self.test_instance = factories.FeatureSetFactory()
@@ -67,7 +78,7 @@ class FeatureSetApiTestCase(TestCase):
         self.assertTrue(data["data"]["name"] == self.test_instance.name)
 
 
-class FeatureApiTestCase(TestCase):
+class FeatureApiTestCase(StaffClientMixin, TestCase):
     def setUp(self) -> None:
         self.shop = factories.ShopFactory()
         self.test_instance = factories.FeatureFactory()
@@ -99,7 +110,7 @@ class FeatureApiTestCase(TestCase):
         self.assertTrue(data["data"]["idx"] == self.test_instance.idx)
 
 
-class ProductCategoryApiTestCase(TestCase):
+class ProductCategoryApiTestCase(StaffClientMixin, TestCase):
     def setUp(self) -> None:
         self.test_instance = factories.ProductCategoryFactory()
         self.shop = self.test_instance.shop

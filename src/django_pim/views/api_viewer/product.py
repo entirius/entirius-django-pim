@@ -29,6 +29,7 @@ from django_pim.models import (
     Thumb,
 )
 from django_pim.models.product import ProductVisibility
+from django_pim.views.api_viewer.auth import staff_required
 
 logger = getLogger("django")
 
@@ -299,6 +300,7 @@ def products_to_response(channel: Channel, params: dict, qs: QuerySet) -> list[d
 
 
 @api_view
+@staff_required
 @require_http_method("GET")
 def view_products(request, sku=None, shop_idx=None, *args, **kwargs):
     to_response = products_to_response

@@ -10,6 +10,7 @@ from django_utils.api.responses import PaginatedResponse, Response
 
 from django_pim.filters import FeatureSetFilter
 from django_pim.models import Channel, FeatureSet
+from django_pim.views.api_viewer.auth import staff_required
 from django_pim.views.api_viewer.feature import feature_to_repr
 
 
@@ -22,6 +23,7 @@ def feature_set_to_repr(params: dict, instance: FeatureSet, channel: Channel = N
 
 
 @api_view
+@staff_required
 @require_http_method("GET")
 def view_feature_sets(request, idx=None, shop_idx=None, *args, **kwargs):
     _to_repr = feature_set_to_repr
