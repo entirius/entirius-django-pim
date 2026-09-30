@@ -198,10 +198,10 @@ Shared record across all channels. One `RealProduct` per SKU, referenced by mult
 | `sku` | CharField(128) | No | No | -- | Validated by `validate_sku()` on save |
 | `ean` | CharField(16) | Yes | Yes | NULL | `db_index=True`; validated by `validate_ean()` unless `ignore_validate_ean=True` |
 | `kind_of_product` | PositiveSmallIntegerField | No | No | 0 (Physical) | `KindOfProductEnum` |
-| `weight` | DecimalField(12,2) | Yes | Yes | NULL | Unit defined by `settings.PIM_weight_UNIT` |
-| `width` | DecimalField(12,2) | Yes | Yes | NULL | Unit defined by `settings.PIM_DIMENSIONS_UNIT` |
-| `height` | DecimalField(12,2) | Yes | Yes | NULL | Unit defined by `settings.PIM_DIMENSIONS_UNIT` |
-| `deep` | DecimalField(12,2) | Yes | Yes | NULL | Unit defined by `settings.PIM_DIMENSIONS_UNIT` |
+| `weight` | DecimalField(12,2) | Yes | Yes | NULL | Grams by default: `settings.DEFAULT_MASS_UNIT`. Stored as given, no conversion |
+| `width` | DecimalField(12,2) | Yes | Yes | NULL | Millimetres by default: `settings.DEFAULT_LENGTH_UNIT`. Stored as given, no conversion |
+| `height` | DecimalField(12,2) | Yes | Yes | NULL | Millimetres by default: `settings.DEFAULT_LENGTH_UNIT`. Stored as given, no conversion |
+| `deep` | DecimalField(12,2) | Yes | Yes | NULL | Millimetres by default: `settings.DEFAULT_LENGTH_UNIT`. Stored as given, no conversion |
 | `updated_at` | DateTimeField | No | No | auto_now | Updated on every save |
 
 **Manager:** `EnhanceManager` (from `django_utils`)
@@ -415,7 +415,7 @@ Global feature/attribute definition (shared across all channels).
 | `magento_idx` | CharField(26) | Yes | Yes | NULL | `unique=True`; auto-generated from `idx` if not set |
 | `magento_pk` | IntegerField | Yes | Yes | NULL | Legacy Magento attribute ID |
 | `name_t9n` | JSONField | No | No | `{}` | `{"en": "...", "pl": "..."}` |
-| `is_required` | BooleanField | No | No | False | |
+| `is_required` | BooleanField | No | No | False | Default for every set carrying the feature; overridable per set via `FeatureInFeatureSet.is_required`. See [Required Features](./required-features/) |
 | `is_visible` | BooleanField | No | No | True | |
 | `is_filterable` | BooleanField | No | No | False | |
 | `is_searchable` | BooleanField | No | No | True | |
@@ -523,9 +523,11 @@ Through table for the Feature <-> FeatureSet M2M with position ordering.
 | `id` | AutoField | No | No | auto | PK |
 | `feature_set` | ForeignKey → FeatureSet | No | No | -- | CASCADE; `related_name="feature_in_feature_set"` |
 | `feature` | ForeignKey → Feature | No | No | -- | CASCADE; `related_name="feature_in_feature_set"` |
+| `attributes_group` | ForeignKey → AttributesGroup | Yes | Yes | `None` | SET_NULL; `related_name="feature_in_sets"` |
 | `position` | IntegerField | No | No | 500 | Display order within set |
+| `is_required` | BooleanField | Yes | Yes | `None` | Per-set override of `Feature.is_required`; `None` inherits. Rejected (`ValueError`) for SYSTEM-scope features. See [Required Features](./required-features/) |
 
-**Manager:** `models.Manager()` (default)
+**Manager:** `FeatureInFeatureSetQuerySet.as_manager()` — adds `effective_required()`; `effective_is_required` property on instances.
 
 **Unique constraints:**
 
