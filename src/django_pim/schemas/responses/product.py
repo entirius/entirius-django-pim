@@ -176,10 +176,26 @@ class ProductDetailResponse(BaseModel):
     product_class: int = Field(description="Product class enum value", examples=[1])
     product_class_name: str = Field(description="Product class label", examples=["ProductSimple"])
     feature_set_idx: str = Field(description="Feature set identifier", examples=["default"])
-    weight: str | None = Field(None, description="Product weight", examples=["1.50"])
-    width: str | None = Field(None, description="Product width", examples=["30.00"])
-    height: str | None = Field(None, description="Product height", examples=["20.00"])
-    deep: str | None = Field(None, description="Product depth", examples=["5.00"])
+    weight: str | None = Field(
+        None,
+        description="Product weight (unit: DEFAULT_MASS_UNIT, grams by default; stored as given, no conversion)",
+        examples=["1500.00"],
+    )
+    width: str | None = Field(
+        None,
+        description="Product width (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["300.00"],
+    )
+    height: str | None = Field(
+        None,
+        description="Product height (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["200.00"],
+    )
+    deep: str | None = Field(
+        None,
+        description="Product depth (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["50.00"],
+    )
     ean: str | None = Field(None, description="EAN barcode", examples=["5901234123457"])
     kind_of_product: int = Field(description="Kind of product enum", examples=[0])
     inherit_attributes: bool = Field(
