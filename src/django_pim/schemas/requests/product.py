@@ -49,10 +49,26 @@ class CreateProductRequest(BaseModel):
         validate_routable_sku(value)
         return value
 
-    weight: str | None = Field(None, description="Product weight", examples=["1.50"])
-    width: str | None = Field(None, description="Product width", examples=["30.00"])
-    height: str | None = Field(None, description="Product height", examples=["20.00"])
-    deep: str | None = Field(None, description="Product depth", examples=["5.00"])
+    weight: str | None = Field(
+        None,
+        description="Product weight (unit: DEFAULT_MASS_UNIT, grams by default; stored as given, no conversion)",
+        examples=["1500.00"],
+    )
+    width: str | None = Field(
+        None,
+        description="Product width (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["300.00"],
+    )
+    height: str | None = Field(
+        None,
+        description="Product height (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["200.00"],
+    )
+    deep: str | None = Field(
+        None,
+        description="Product depth (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["50.00"],
+    )
     feature_set_idx: str = Field(
         description="Feature set identifier for the product", examples=["default"], min_length=1
     )
@@ -81,10 +97,26 @@ class UpdateProductRequest(BaseModel):
     """Request schema for updating a product (PATCH - all fields optional)."""
 
     ean: str | None = Field(None, description="EAN barcode", examples=["5901234123457"], max_length=16)
-    weight: str | None = Field(None, description="Product weight (shared across channels)", examples=["1.50"])
-    width: str | None = Field(None, description="Product width (shared across channels)", examples=["30.00"])
-    height: str | None = Field(None, description="Product height (shared across channels)", examples=["20.00"])
-    deep: str | None = Field(None, description="Product depth (shared across channels)", examples=["5.00"])
+    weight: str | None = Field(
+        None,
+        description="Product weight (shared across channels) (unit: DEFAULT_MASS_UNIT, grams by default; stored as given, no conversion)",
+        examples=["1500.00"],
+    )
+    width: str | None = Field(
+        None,
+        description="Product width (shared across channels) (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["300.00"],
+    )
+    height: str | None = Field(
+        None,
+        description="Product height (shared across channels) (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["200.00"],
+    )
+    deep: str | None = Field(
+        None,
+        description="Product depth (shared across channels) (unit: DEFAULT_LENGTH_UNIT, millimetres by default; stored as given, no conversion)",
+        examples=["50.00"],
+    )
     feature_set_idx: str | None = Field(None, description="Feature set identifier", examples=["default"])
     visibility: int | None = Field(
         None, description=("Visibility: 1=Not visible, 2=Catalog, 3=Search, 4=Catalog and search"), examples=[4]

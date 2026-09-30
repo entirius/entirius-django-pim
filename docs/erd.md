@@ -245,6 +245,7 @@ FeatureInFeatureSet: {
   feature_id: int {constraint: foreign_key}
   attributes_group_id: int {constraint: foreign_key}
   position: int
+  is_required: bool
 }
 
 Attribute: {

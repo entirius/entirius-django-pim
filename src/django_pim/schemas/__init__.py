@@ -20,6 +20,7 @@ from .requests import (
     CreateProductRequest,
     FeatureInSetEntry,
     ProductAttributeValueRequest,
+    SetFeatureRequiredRequest,
     ToggleLanguageOverrideRequest,
     UpdateAttributeRequest,
     UpdateAttributesGroupRequest,
@@ -61,6 +62,8 @@ from .responses import (
     ProductDetailResponse,
     ProductListResponse,
     ProductResponse,
+    RequiredFeatureListResponse,
+    RequiredFeatureResponse,
 )
 
 __all__ = [
@@ -74,6 +77,7 @@ __all__ = [
     "CreateAttributesGroupRequest",
     "UpdateAttributesGroupRequest",
     "FeatureInSetEntry",
+    "SetFeatureRequiredRequest",
     "BulkAddFeaturesRequest",
     "BulkRemoveFeaturesRequest",
     "CreateProductRequest",
@@ -106,6 +110,8 @@ __all__ = [
     "FeatureSetResponse",
     "FeatureSetListResponse",
     "FeatureInSetResponse",
+    "RequiredFeatureListResponse",
+    "RequiredFeatureResponse",
     "FeaturesInSetListResponse",
     "AttributeResponse",
     "AttributeListResponse",

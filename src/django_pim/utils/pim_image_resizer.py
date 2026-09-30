@@ -4,6 +4,7 @@
 
 import hashlib
 import os
+from dataclasses import dataclass
 from logging import getLogger
 
 import image_transformations
@@ -16,6 +17,23 @@ from ..managers import PictureManager
 from ..models import PictureThumb, Thumb
 
 logger = getLogger(__name__)
+
+
+@dataclass
+class ResizeStats:
+    """Outcome of a resize run, in thumbnails: created now, already there, or failed."""
+
+    pictures: int = 0
+    generated: int = 0
+    existing: int = 0
+    failed: int = 0
+
+    def __iadd__(self, other: "ResizeStats") -> "ResizeStats":
+        self.pictures += other.pictures
+        self.generated += other.generated
+        self.existing += other.existing
+        self.failed += other.failed
+        return self
 
 
 class PimImageResizer:
@@ -108,6 +126,7 @@ class PimImageResizer:
             return picture_thumb.thumb
         src_path = picture.image.path
         src_sha1 = picture.sha1
+        os.makedirs(settings.TMP_DIR, exist_ok=True)
         out_path_tmp = os.path.join(
             settings.TMP_DIR, f"tmp-thumb-{src_sha1}-{slugify(transform_method)}-{width}x{height}.{out_format}"
         )
@@ -172,7 +191,19 @@ class PimImageResizer:
         return result
 
     @classmethod
-    def resize_pictures(cls, pictures, config):
+    def pictures_missing_thumbs(cls, pictures, config) -> list:
+        """Pictures lacking at least one thumbnail of ``config`` (one query for all pictures)."""
+        wanted = {(w, h, str(method), str(fmt)) for w, h, method, fmt, _quality in config}
+        present: dict[int, set] = {}
+        rows = PictureThumb.objects.filter(picture__in=pictures).values_list(
+            "picture_id", "width", "height", "transform_method", "out_format"
+        )
+        for picture_id, width, height, method, fmt in rows:
+            present.setdefault(picture_id, set()).add((width, height, method, fmt))
+        return [pic for pic in pictures if not wanted <= present.get(pic.pk, set())]
+
+    @classmethod
+    def resize_pictures(cls, pictures, config) -> ResizeStats:
         def print_progress(cnt, total, msg, step=1000):
             if cnt % step == 0:
                 msg = f" {cnt} / {total} {msg}"
@@ -185,12 +216,16 @@ class PimImageResizer:
                 else:
                     print(".", flush=True, end="")
 
-        total = len(pictures)
-        cnt = 0
-        for pic in pictures:
-            cnt += 1
-            cls.get_thumbs(pic, config)
-            print_progress(cnt, total, "pictures", 1000)
+        stats = ResizeStats(pictures=len(pictures))
+        for cnt, pic in enumerate(pictures, start=1):
+            before = pic.picture_thumbs.count()
+            ready = len(cls.get_thumbs(pic, config))
+            created = pic.picture_thumbs.count() - before
+            stats.generated += created
+            stats.existing += max(ready - created, 0)
+            stats.failed += len(config) - ready
+            print_progress(cnt, stats.pictures, "pictures", 1000)
+        return stats
 
     def delete_thumbs(self, pictures):
         Thumb.objects.filter(picture_thumbs__picture__in=pictures).delete()

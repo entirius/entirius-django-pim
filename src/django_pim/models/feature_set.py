@@ -3,7 +3,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from django.db import models
-from django.db.models import Max
+from django.db.models import Max, Q
 from idx_normalizator import validate_idx
 
 
@@ -57,6 +57,12 @@ class FeatureSet(models.Model):
         verbose_name_plural = "features sets"
 
 
+class FeatureInFeatureSetQuerySet(models.QuerySet):
+    def effective_required(self) -> "FeatureInFeatureSetQuerySet":
+        """Memberships whose effective flag is True: the override, else the feature's own flag."""
+        return self.filter(Q(is_required=True) | Q(is_required__isnull=True, feature__is_required=True))
+
+
 class FeatureInFeatureSet(models.Model):
     feature_set = models.ForeignKey(
         "FeatureSet",
@@ -81,9 +87,31 @@ class FeatureInFeatureSet(models.Model):
     )
 
     position = models.IntegerField(null=False, blank=False, default=500)
-    objects = models.Manager()
+    is_required = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Per-set override of Feature.is_required. None inherits the feature's flag; "
+            "True/False wins for this set only. Not allowed on SYSTEM-scope features."
+        ),
+    )
+    objects = FeatureInFeatureSetQuerySet.as_manager()
+
+    @property
+    def effective_is_required(self) -> bool:
+        """The override when set, else the feature's own flag."""
+        return self.feature.is_required if self.is_required is None else self.is_required
+
+    def validate_override(self) -> None:
+        """Raise ValueError when an override sits on a SYSTEM-scope feature (system rules are global)."""
+        from .feature import FeatureScopeEnum
+
+        if self.is_required is not None and self.feature.scope == FeatureScopeEnum.SYSTEM:
+            raise ValueError(f"Cannot override is_required on system feature '{self.feature.idx}'")
 
     def save(self, *args, **kwargs):
+        self.validate_override()
 
         def get_last_available_position(feature_set) -> int:
             highest_position = FeatureInFeatureSet.objects.filter(feature_set=feature_set).aggregate(Max("position"))[

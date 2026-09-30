@@ -21,6 +21,9 @@ Features in PIM have a `scope` field that controls visibility, editability, and 
 
 Defined in `django_pim.settings.SYSTEM_FEATURES_IDXS`.
 
+`is_required` on a SYSTEM feature applies to every feature set. The per-set override on a membership is
+rejected for SYSTEM features (400 in the API). See [Required Features](./required-features/).
+
 ### Protection Matrix
 
 | Operation | Allowed? | Details |
@@ -82,3 +85,5 @@ Before the fix, `discover_scope()` in `config_features_importer.py` defaulted to
 | **django-matrix** | `copy_features()` excludes SYSTEM, copies everything else |
 | **django-cynthia** | `copy_features()` excludes SYSTEM, copies everything else |
 | **django-pim-csv** | `discover_scope()` maps CSV text to enum, SYSTEM features detected by idx |
+
+Required flags per feature set: [Required Features](./required-features/).

@@ -11,16 +11,15 @@ isolated from API and model layers.
 
 from decimal import Decimal
 
+from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 
+from ..exceptions import RequiredFeaturesMissingError, UnresolvedAttributesError
 from ..models import (
-    Attribute,
     Channel,
-    Feature,
     FeatureScopeEnum,
     FeatureSet,
-    FeatureTypeEnum,
     PictureRoleEnum,
     Product,
     ProductAttribute,
@@ -30,9 +29,11 @@ from ..models import (
     RealProduct,
 )
 from ..settings import SYSTEM_FEATURE_NAME_IDX, T9N_DEFAULT_LANG
+from .attribute_plan import AttributePlan, plan_product_attributes, write_planned_attributes
 from .attribute_service import resolve_attribute_name
 from .channel_service import get_default_channel
 from .feature_service import resolve_feature_name
+from .feature_set_service import get_required_features
 from .gap_definition_service import validate_severity
 from .inheritance_service import get_default_product_for
 from .lookup_provider import enqueue_refresh as _enqueue_lookup_refresh
@@ -230,33 +231,6 @@ def get_product_detail(channel_idx: str, sku: str) -> Product:
     )
 
 
-def _has_attribute_value(attr_data: dict, feature_type: int) -> bool:
-    """Check if the attribute data carries a value for the given type.
-
-    For SELECT/MULTISELECT, key presence means "process this" (even if null/empty
-    — that signals deletion). For other types, an explicit None means "set".
-    """
-    if feature_type == FeatureTypeEnum.MULTISELECT:
-        return "attribute_idxs" in attr_data
-    if feature_type == FeatureTypeEnum.SELECT:
-        return "attribute_idx" in attr_data
-    if feature_type == FeatureTypeEnum.BOOL:
-        return attr_data.get("value_bool") is not None
-    if feature_type == FeatureTypeEnum.DECIMAL:
-        return attr_data.get("value_decimal") is not None
-    if feature_type in (FeatureTypeEnum.TEMPERATURE, FeatureTypeEnum.LENGTH, FeatureTypeEnum.MASS):
-        return attr_data.get("value_decimal") is not None
-    if feature_type in (FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT):
-        return attr_data.get("value_txt") is not None
-    if feature_type in (FeatureTypeEnum.VARCHAR255_T9N, FeatureTypeEnum.TEXT_T9N):
-        return attr_data.get("value_txt_t9n") is not None
-    if feature_type in (FeatureTypeEnum.JSON, FeatureTypeEnum.JSON_T9N):
-        return attr_data.get("value_json") is not None
-    if feature_type == FeatureTypeEnum.DATETIME:
-        return attr_data.get("value_datetime") is not None
-    return False
-
-
 def _set_product_attributes(product: Product, attributes: list[dict]) -> None:
     """Set product attribute values, replacing existing values per feature.
 
@@ -264,76 +238,11 @@ def _set_product_attributes(product: Product, attributes: list[dict]) -> None:
     replaced. If all value fields are null, the attribute is left untouched
     (the CMS sends the full feature set, not just changed features).
 
-    Uses bulk queries to avoid N+1: 1 Feature fetch, 1 Attribute fetch,
-    1 bulk delete, 1 bulk_create regardless of attribute count.
-    Note: bulk_create skips post_save signals — callers must trigger
-    Matrix sync explicitly when needed (see update_product).
+    Plan (2 reads: Feature, Attribute) then write (1 bulk delete, 1 bulk_create) regardless of
+    attribute count; see ``attribute_plan``. bulk_create skips post_save signals — callers must
+    trigger Matrix sync explicitly when needed (see update_product).
     """
-    feature_idxs = [a["feature_idx"] for a in attributes]
-    features_by_idx = {f.idx: f for f in Feature.objects.filter(idx__in=feature_idxs)}
-
-    active = [
-        (attr_data, features_by_idx[attr_data["feature_idx"]])
-        for attr_data in attributes
-        if attr_data["feature_idx"] in features_by_idx
-        and _has_attribute_value(attr_data, features_by_idx[attr_data["feature_idx"]].feature_type)
-    ]
-    if not active:
-        return
-
-    attr_lookups: set[tuple[int, str]] = set()
-    for attr_data, feature in active:
-        if feature.feature_type == FeatureTypeEnum.MULTISELECT:
-            for idx in attr_data.get("attribute_idxs") or []:
-                attr_lookups.add((feature.pk, idx))
-        elif feature.feature_type == FeatureTypeEnum.SELECT:
-            idx = attr_data.get("attribute_idx")
-            if idx:
-                attr_lookups.add((feature.pk, idx))
-
-    attributes_map: dict[tuple[int, str], Attribute] = {}
-    if attr_lookups:
-        feature_pks = {fk for fk, _ in attr_lookups}
-        attr_idxs = {idx for _, idx in attr_lookups}
-        for attr in Attribute.objects.filter(feature_id__in=feature_pks, idx__in=attr_idxs):
-            attributes_map[(attr.feature_id, attr.idx)] = attr
-
-    active_features = [feature for _, feature in active]
-    ProductAttribute.objects.filter(product=product, feature__in=active_features).delete()
-
-    new_attrs: list[ProductAttribute] = []
-    for attr_data, feature in active:
-        if feature.feature_type == FeatureTypeEnum.MULTISELECT:
-            for attr_idx in attr_data.get("attribute_idxs") or []:
-                attribute = attributes_map.get((feature.pk, attr_idx))
-                if attribute:
-                    new_attrs.append(ProductAttribute(product=product, feature=feature, attribute=attribute))
-
-        elif feature.feature_type == FeatureTypeEnum.SELECT:
-            attr_idx = attr_data.get("attribute_idx")
-            if attr_idx:
-                attribute = attributes_map.get((feature.pk, attr_idx))
-                if attribute:
-                    new_attrs.append(ProductAttribute(product=product, feature=feature, attribute=attribute))
-
-        else:
-            create_kwargs: dict = {"product": product, "feature": feature}
-            if feature.feature_type == FeatureTypeEnum.BOOL:
-                create_kwargs["value_bool"] = attr_data.get("value_bool")
-            elif feature.feature_type == FeatureTypeEnum.DECIMAL:
-                create_kwargs["value_decimal"] = Decimal(str(attr_data["value_decimal"]))
-            elif feature.feature_type in (FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT):
-                create_kwargs["value_txt"] = attr_data["value_txt"]
-            elif feature.feature_type in (FeatureTypeEnum.VARCHAR255_T9N, FeatureTypeEnum.TEXT_T9N):
-                create_kwargs["value_txt_t9n"] = attr_data["value_txt_t9n"]
-            elif feature.feature_type in (FeatureTypeEnum.JSON, FeatureTypeEnum.JSON_T9N):
-                create_kwargs["value_json"] = attr_data["value_json"]
-            elif feature.feature_type == FeatureTypeEnum.DATETIME:
-                create_kwargs["value_datetime"] = attr_data["value_datetime"]
-            new_attrs.append(ProductAttribute(**create_kwargs))
-
-    if new_attrs:
-        ProductAttribute.objects.bulk_create(new_attrs)
+    write_planned_attributes(product, plan_product_attributes(attributes))
 
 
 def _set_product_categories(product: Product, channel: Channel, category_idxs: list[str]) -> None:
@@ -346,6 +255,44 @@ def _set_product_categories(product: Product, channel: Channel, category_idxs: l
     ProductInCategory.objects.bulk_create(
         [ProductInCategory(product=product, category=categories[idx]) for idx in category_idxs if idx in categories]
     )
+
+
+ENFORCE_REQUIRED_SETTING = "PIM_ENFORCE_REQUIRED_ON_CREATE"
+STRICT_CREATE_SETTING = "PIM_STRICT_CREATE"
+
+
+def _flag(explicit: bool | None, setting_name: str) -> bool:
+    """Explicit kwarg wins; None reads the Django setting at call time (default False)."""
+    if explicit is not None:
+        return explicit
+    return bool(getattr(django_settings, setting_name, False))
+
+
+def _missing_required_idxs(feature_set: FeatureSet, plan: AttributePlan) -> list[str]:
+    required = {feature.idx for feature, _source in get_required_features(feature_set.idx)}
+    return sorted(required - plan.supplied_feature_idxs())
+
+
+def find_missing_required(feature_set: FeatureSet, attributes: list[dict] | None) -> list[str]:
+    """Sorted idxs of required features that ``attributes`` would NOT leave with a stored value.
+
+    Judged on what ``create_product`` would store: unknown features, empty values, values under
+    the wrong key for the feature type, and unknown / foreign options do not count; bool False
+    and decimal 0 do. Reads only.
+    """
+    return _missing_required_idxs(feature_set, plan_product_attributes(attributes or []))
+
+
+def _refuse_missing_required(feature_set: FeatureSet, plan: AttributePlan) -> None:
+    if missing := _missing_required_idxs(feature_set, plan):
+        raise RequiredFeaturesMissingError(feature_set.idx, missing)
+
+
+def _refuse_unresolved(plan: AttributePlan, channel: Channel, category_idxs: list[str]) -> None:
+    known = set(ProductCategory.objects.filter(shop=channel, idx__in=category_idxs).values_list("idx", flat=True))
+    unknown_categories = [idx for idx in category_idxs if idx not in known]
+    if plan.unresolved or unknown_categories:
+        raise UnresolvedAttributesError(list(plan.unresolved), unknown_categories)
 
 
 @transaction.atomic
@@ -364,22 +311,37 @@ def create_product(
     kind_of_product: int = 0,
     attributes: list[dict] | None = None,
     category_idxs: list[str] | None = None,
+    enforce_required: bool | None = None,
+    strict: bool | None = None,
 ) -> Product:
     """
     Create a new product in a channel.
 
     Uses get_or_create on RealProduct to handle SKUs shared across channels.
 
+    ``enforce_required`` / ``strict`` default to None = read ``PIM_ENFORCE_REQUIRED_ON_CREATE`` /
+    ``PIM_STRICT_CREATE`` (both False unless set) at call time; an explicit bool wins. Order:
+    channel and set lookup, duplicate SKU, attribute plan, strict check, required check, write —
+    a refusal never leaves a row behind.
+
     Raises:
         Channel.DoesNotExist: If channel_idx does not exist
         FeatureSet.DoesNotExist: If feature_set_idx does not exist
         ValueError: If a product with the given SKU already exists in this channel
+        UnresolvedAttributesError: strict, and the payload names unknown features/options/categories
+        RequiredFeaturesMissingError: enforcing, and a required feature has no value that would be stored
     """
     channel = Channel.objects.get(idx=channel_idx)
     feature_set = FeatureSet.objects.get(idx=feature_set_idx)
 
     if Product.objects.filter(shop=channel, real_product__sku=sku).exists():
         raise ValueError(f"Product with SKU '{sku}' already exists in channel '{channel_idx}'")
+
+    plan = plan_product_attributes(attributes or [])
+    if _flag(strict, STRICT_CREATE_SETTING):
+        _refuse_unresolved(plan, channel, category_idxs or [])
+    if _flag(enforce_required, ENFORCE_REQUIRED_SETTING):
+        _refuse_missing_required(feature_set, plan)
 
     real_product, _created = RealProduct.objects.get_or_create(
         sku=sku,
@@ -402,8 +364,7 @@ def create_product(
         product_class=product_class,
     )
 
-    if attributes:
-        _set_product_attributes(product, attributes)
+    write_planned_attributes(product, plan)
 
     if category_idxs:
         _set_product_categories(product, channel, category_idxs)

@@ -8,7 +8,14 @@ from .attribute import AttributeListResponse, AttributeResponse
 from .attributes_group import AttributesGroupListResponse, AttributesGroupResponse
 from .category import CategoryDetailResponse, CategoryListResponse, CategoryResponse
 from .feature import FeatureListResponse, FeatureResponse
-from .feature_set import FeatureInSetResponse, FeatureSetListResponse, FeatureSetResponse, FeaturesInSetListResponse
+from .feature_set import (
+    FeatureInSetResponse,
+    FeatureSetListResponse,
+    FeatureSetResponse,
+    FeaturesInSetListResponse,
+    RequiredFeatureListResponse,
+    RequiredFeatureResponse,
+)
 from .files_category import FilesCategoryListResponse, FilesCategoryResponse
 from .gap import (
     GapDefinitionListResponse,
@@ -53,6 +60,8 @@ __all__ = [
     "FeatureSetResponse",
     "FeatureSetListResponse",
     "FeatureInSetResponse",
+    "RequiredFeatureListResponse",
+    "RequiredFeatureResponse",
     "FeaturesInSetListResponse",
     "AttributeResponse",
     "AttributeListResponse",

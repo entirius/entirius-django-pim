@@ -45,9 +45,12 @@ Full surface documentation for the PIM Admin API. Covers endpoint routes, query 
 | GET | `feature-sets/{idx}/features/` | List features in set |
 | POST | `feature-sets/{idx}/features/` | Bulk add features to set |
 | DELETE | `feature-sets/{idx}/features/` | Bulk remove features from set |
+| PATCH | `feature-sets/{idx}/features/{feature_idx}/` | Set or clear the per-set required override |
+| GET | `feature-sets/{idx}/required-features/` | Required features of the set, with source |
 | GET | `{channel_idx}/feature-sets/` | List feature sets (channel-scoped, read-only) |
 | GET | `{channel_idx}/feature-sets/{idx}/` | Retrieve feature set (channel-scoped) |
 | GET | `{channel_idx}/feature-sets/{idx}/features/` | List features in set (channel-scoped) |
+| GET | `{channel_idx}/feature-sets/{idx}/required-features/` | Required features of the set (channel-scoped) |
 | GET | `attributes/` | List attributes |
 | POST | `attributes/` | Create attribute |
 | GET | `attributes/{feature_idx}/{idx}/` | Retrieve attribute |
@@ -176,10 +179,10 @@ All product endpoints are channel-scoped. Path parameter `{channel_idx}` is alwa
 | `product_class` | `int` | Product class enum value |
 | `product_class_name` | `str` | Product class label |
 | `feature_set_idx` | `str` | Feature set identifier |
-| `weight` | `str\|null` | Weight as decimal string |
-| `width` | `str\|null` | Width as decimal string |
-| `height` | `str\|null` | Height as decimal string |
-| `deep` | `str\|null` | Depth as decimal string |
+| `weight` | `str\|null` | Weight as decimal string, in `DEFAULT_MASS_UNIT` (grams by default) |
+| `width` | `str\|null` | Width as decimal string, in `DEFAULT_LENGTH_UNIT` (millimetres by default) |
+| `height` | `str\|null` | Height as decimal string, in `DEFAULT_LENGTH_UNIT` (millimetres by default) |
+| `deep` | `str\|null` | Depth as decimal string, in `DEFAULT_LENGTH_UNIT` (millimetres by default) |
 | `ean` | `str\|null` | EAN barcode |
 | `kind_of_product` | `int` | 0=Physical, 1=Virtual |
 | `categories` | `list[ProductCategoryBriefResponse]` | Assigned categories |
@@ -230,10 +233,10 @@ All product endpoints are channel-scoped. Path parameter `{channel_idx}` is alwa
 | `product_class` | `int` | `1` | ge=0, le=4 | 0=Base, 1=Simple, 2=Configurable, 3=Bundle, 4=Custom |
 | `kind_of_product` | `int` | `0` | ge=0, le=1 | 0=Physical, 1=Virtual |
 | `ean` | `str\|null` | `null` | max 16 | EAN barcode |
-| `weight` | `str\|null` | `null` | | Weight as decimal string |
-| `width` | `str\|null` | `null` | | Width as decimal string |
-| `height` | `str\|null` | `null` | | Height as decimal string |
-| `deep` | `str\|null` | `null` | | Depth as decimal string |
+| `weight` | `str\|null` | `null` | | Weight as decimal string, in `DEFAULT_MASS_UNIT` (grams by default) |
+| `width` | `str\|null` | `null` | | Width as decimal string, in `DEFAULT_LENGTH_UNIT` (millimetres by default) |
+| `height` | `str\|null` | `null` | | Height as decimal string, in `DEFAULT_LENGTH_UNIT` (millimetres by default) |
+| `deep` | `str\|null` | `null` | | Depth as decimal string, in `DEFAULT_LENGTH_UNIT` (millimetres by default) |
 | `attributes` | `list[ProductAttributeValueRequest]` | `[]` | | Attribute values to set on creation |
 | `category_idxs` | `list[str]` | `[]` | | Category identifiers to assign |
 
@@ -253,7 +256,20 @@ All product endpoints are channel-scoped. Path parameter `{channel_idx}` is alwa
 
 **Response `201 ProductDetailResponse`** -- see Retrieve Product.
 
-**Status codes:** `201`, `400`, `401`, `403`, `404` (channel or feature set not found)
+**Validation errors (400, v2 envelope `{error, message, debug_id, details[]}`):**
+
+| Case | `details[].field` | `details[].issue` | When |
+|------|-------------------|-------------------|------|
+| Required feature without a stored value | `attributes.<feature_idx>` | `REQUIRED_FEATURE_MISSING` | `PIM_ENFORCE_REQUIRED_ON_CREATE` on |
+| Unknown feature or option | `attributes.<feature_idx>` | `UNRESOLVED_ATTRIBUTE` | `PIM_STRICT_CREATE` on |
+| Unknown category | `category_idxs.<idx>` | `UNRESOLVED_CATEGORY` | `PIM_STRICT_CREATE` on |
+| Unknown channel | `channel_idx` (`location: path`) | `NOT_FOUND` | always |
+| Unknown feature set | `feature_set_idx` | `NOT_FOUND` | always |
+
+A duplicate SKU stays a 400 with `{"detail": "..."}`. Nothing is written on any 400. See
+[Required Features](./required-features/).
+
+**Status codes:** `201`, `400` (validation, duplicate SKU, unknown channel or feature set), `401`, `403`
 
 ---
 
@@ -807,6 +823,10 @@ Returns features within the set, ordered by position.
 | Field | Type | Description |
 |-------|------|-------------|
 | `position` | `int` | Sort position within the set (lower = first) |
+| `attributes_group_idx` | `str\|null` | Attributes group of the feature within the set |
+| `attributes_group_name` | `str\|null` | Resolved group name |
+| `is_required` | `bool` | Effective flag: the per-set override when set, else `Feature.is_required` |
+| `is_required_override` | `bool\|null` | Raw per-set override (`null` = inherits) |
 | `feature` | `FeatureResponse` | Full feature details (see Retrieve Feature) |
 
 **Status codes:** `200`, `401`, `403`, `404`
@@ -831,6 +851,8 @@ Idempotent -- features already present in the set are ignored.
 |-------|------|---------|-------------|-------------|
 | `feature_idx` | `str` | required | min 1, max 128 | Feature identifier |
 | `position` | `int\|null` | `null` | ge=0 | Position in set. Auto-assigned starting at 500 when null |
+| `attributes_group_idx` | `str\|null` | `null` | | Attributes group to assign |
+| `is_required` | `bool\|null` | `null` | | Per-set override of `Feature.is_required`; `null` inherits. 400 for SYSTEM features |
 
 **Response `201`:** Array of `FeatureInSetResponse` entries for features that were added.
 
@@ -857,6 +879,41 @@ Idempotent -- features not present in the set are ignored.
 ```
 
 **Status codes:** `200`, `400`, `401`, `403`, `404` (feature set not found)
+
+---
+
+### Set Required Override
+
+`PATCH feature-sets/{idx}/features/{feature_idx}/`
+
+Sets or clears the per-set override of `Feature.is_required` for one membership. Touches nothing else.
+
+**Request body `SetFeatureRequiredRequest`:**
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `is_required` | `bool\|null` | key required | `true`/`false` overrides for this set; `null` clears the override |
+
+**Response `200 FeatureInSetResponse`.**
+
+**Status codes:** `200`, `400` (missing key, non-boolean, or SYSTEM-scope feature: `{"detail": "..."}`), `401`, `403`, `404` (feature set, feature or membership not found)
+
+---
+
+### List Required Features
+
+`GET feature-sets/{idx}/required-features/` or `GET {channel_idx}/feature-sets/{idx}/required-features/`
+
+Not paginated. Memberships whose effective flag is `true`, plus SYSTEM features with `is_required=true`.
+
+**Response `200`:** `list[RequiredFeatureResponse]`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `feature` | `FeatureResponse` | Full feature details |
+| `source` | `str` | `system` (SYSTEM feature flagged required), `feature` (inherited `Feature.is_required`), `feature_set` (per-set override `true`) |
+
+**Status codes:** `200`, `401`, `403`, `404` (feature set or channel not found)
 
 ---
 
