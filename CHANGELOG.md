@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.1 — 2026-09-30
+
+- **Security fix: the legacy `/api-viewer/pim/` routes are staff-only.** All 11 routes answered without
+  authentication, including a `csrf_exempt` PUT on `…/attributes/<attr_idx>/extension/` that overwrote
+  `Attribute.extension` for anyone. Every route now requires a Bearer JWT of a staff or superuser account
+  (the admin API's rule): no or invalid token → 401, a non-staff user → 403. Callers of these routes must
+  send a staff token; the v2 admin API (`/api/pim/v2/admin/`) is the supported way.
+
 ## 3.3.0 — 2026-09-30
 
 - **Required per feature set.** New nullable `FeatureInFeatureSet.is_required` (migration `0063`):
