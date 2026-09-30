@@ -12,6 +12,7 @@ without leaking DB names, paths, or SQL fragments to callers.
 import traceback
 import uuid
 
+from django_utils.api.v2_errors import ErrorDetail, ErrorResponse
 from process_logger import ProcessLogger
 from rest_framework import status
 from rest_framework.response import Response
@@ -43,3 +44,9 @@ def internal_error(exc: Exception) -> Response:
         {"detail": f"Internal server error [{error_id}]"},
         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
+
+
+def validation_error_response(message: str, details: list[ErrorDetail]) -> Response:
+    """400 in the v2 error shape: ``{error, message, debug_id, details[]}``."""
+    body = ErrorResponse(error="VALIDATION_ERROR", message=message, debug_id=uuid.uuid4().hex[:8], details=details)
+    return Response(body.model_dump(), status=status.HTTP_400_BAD_REQUEST)

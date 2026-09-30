@@ -163,6 +163,16 @@ urlpatterns = [
         FeatureSetViewSet.as_view({"patch": "reorder_features"}),
         name="featureset-features-reorder",
     ),
+    path(
+        "feature-sets/<str:idx>/features/<str:feature_idx>/",
+        FeatureSetViewSet.as_view({"patch": "set_feature_required"}),
+        name="featureset-feature-required",
+    ),
+    path(
+        "feature-sets/<str:idx>/required-features/",
+        FeatureSetViewSet.as_view({"get": "required_features"}),
+        name="featureset-required-features",
+    ),
     path("<str:channel_idx>/feature-sets/", FeatureSetViewSet.as_view({"get": "list"}), name="featureset-list-shop"),
     path(
         "<str:channel_idx>/feature-sets/<str:idx>/",
@@ -173,6 +183,11 @@ urlpatterns = [
         "<str:channel_idx>/feature-sets/<str:idx>/features/",
         FeatureSetViewSet.as_view({"get": "features"}),
         name="featureset-features-shop",
+    ),
+    path(
+        "<str:channel_idx>/feature-sets/<str:idx>/required-features/",
+        FeatureSetViewSet.as_view({"get": "required_features"}),
+        name="featureset-required-features-shop",
     ),
     # --- Attribute endpoints (CRUD, composite key: feature_idx + idx) ---
     path("attributes/", AttributeViewSet.as_view({"get": "list", "post": "create"}), name="attribute-list"),

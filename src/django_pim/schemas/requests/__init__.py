@@ -14,6 +14,7 @@ from .feature_in_feature_set import (
     FeatureInSetEntry,
     ReorderFeatureInSetEntry,
     ReorderFeaturesInSetRequest,
+    SetFeatureRequiredRequest,
 )
 from .feature_set import CreateFeatureSetRequest, UpdateFeatureSetRequest
 from .files_category import CreateFilesCategoryRequest, UpdateFilesCategoryRequest
@@ -50,6 +51,7 @@ __all__ = [
     "BulkAddFeaturesRequest",
     "BulkRemoveFeaturesRequest",
     "ReorderFeatureInSetEntry",
+    "SetFeatureRequiredRequest",
     "ReorderFeaturesInSetRequest",
     "CreateProductRequest",
     "UpdateProductRequest",

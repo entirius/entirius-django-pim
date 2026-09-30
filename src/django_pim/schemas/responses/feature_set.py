@@ -4,7 +4,9 @@
 
 """FeatureSet response schemas for django-pim APIs."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from .feature import FeatureResponse
 
@@ -84,6 +86,18 @@ class FeatureInSetResponse(BaseModel):
         description="AttributesGroup display name (resolved from name_t9n)",
         examples=["General", "Dimensions", None],
     )
+    is_required: bool = Field(
+        ...,
+        description=(
+            "Effective required flag in this set: the per-set override when set, otherwise Feature.is_required"
+        ),
+        examples=[True, False],
+    )
+    is_required_override: bool | None = Field(
+        None,
+        description="Raw per-set override (null = inherits Feature.is_required)",
+        examples=[True, False, None],
+    )
     feature: FeatureResponse = Field(..., description="Feature details")
 
 
@@ -110,3 +124,23 @@ class FeaturesInSetListResponse(BaseModel):
     results: list[FeatureInSetResponse] = Field(
         ..., description="List of features with positions in the current page", examples=[[]]
     )
+
+
+class RequiredFeatureResponse(BaseModel):
+    """A feature a product of the set must carry, with where the requirement comes from."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    feature: FeatureResponse = Field(..., description="Feature details")
+    source: Literal["system", "feature", "feature_set"] = Field(
+        ...,
+        description=(
+            "system: SYSTEM-scope feature flagged required (applies to every set); "
+            "feature: inherited Feature.is_required; feature_set: per-set override true"
+        ),
+        examples=["feature"],
+    )
+
+
+class RequiredFeatureListResponse(RootModel[list[RequiredFeatureResponse]]):
+    """Bare JSON array of required features (not paginated). Root model so OpenAPI can name it."""

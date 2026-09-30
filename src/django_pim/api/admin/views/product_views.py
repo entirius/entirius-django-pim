@@ -10,7 +10,7 @@ DRF ViewSet for administrative product CRUD operations.
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django_utils.api.v2_errors import raise_pydantic_as_drf
+from django_utils.api.v2_errors import ErrorDetail, ErrorResponse, raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
 from rest_framework import status, viewsets
@@ -18,7 +18,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from ....models import Channel, Feature, Product
+from ....exceptions import RequiredFeaturesMissingError, UnresolvedAttributesError
+from ....models import Channel, Feature, FeatureSet, Product
 from ....schemas import (
     ProductAttributeValueResponse,
     ProductCategoryBriefResponse,
@@ -48,7 +49,7 @@ from ....services import (
     toggle_media_override,
     update_product,
 )
-from ..errors import internal_error
+from ..errors import internal_error, validation_error_response
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -59,6 +60,46 @@ def _build_product_detail_response(product: Product, language: str | None = None
     data["categories"] = [ProductCategoryBriefResponse(**c) for c in data["categories"]]
     data["attributes"] = [ProductAttributeValueResponse(**a) for a in data["attributes"]]
     return ProductDetailResponse(**data)
+
+
+def _required_missing_response(exc: RequiredFeaturesMissingError) -> Response:
+    details = [
+        ErrorDetail(
+            field=f"attributes.{feature_idx}",
+            location="body",
+            issue="REQUIRED_FEATURE_MISSING",
+            description=f"Feature '{feature_idx}' is required in feature set '{exc.feature_set_idx}' and has no value.",
+        )
+        for feature_idx in exc.missing_feature_idxs
+    ]
+    return validation_error_response("Required features are missing.", details)
+
+
+def _unresolved_response(exc: UnresolvedAttributesError) -> Response:
+    details = [
+        ErrorDetail(
+            field=f"attributes.{feature_idx}",
+            location="body",
+            issue="UNRESOLVED_ATTRIBUTE",
+            description=f"Feature or option for '{feature_idx}' does not exist and would be dropped.",
+        )
+        for feature_idx in exc.unresolved_attributes
+    ]
+    details += [
+        ErrorDetail(
+            field=f"category_idxs.{category_idx}",
+            location="body",
+            issue="UNRESOLVED_CATEGORY",
+            description=f"Category '{category_idx}' does not exist in this channel and would be dropped.",
+        )
+        for category_idx in exc.unknown_category_idxs
+    ]
+    return validation_error_response("Payload references unknown attributes or categories.", details)
+
+
+def _unknown_reference_response(field: str, location: str, description: str) -> Response:
+    detail = ErrorDetail(field=field, location=location, issue="NOT_FOUND", description=description)
+    return validation_error_response("Request validation failed.", [detail])
 
 
 @extend_schema_view(
@@ -389,7 +430,14 @@ class ProductViewSet(viewsets.ViewSet):
 
     @extend_schema(
         summary="Create product",
-        description="Create a new product in a channel. RealProduct is get_or_created by SKU (shared across channels).",
+        description=(
+            "Create a new product in a channel. RealProduct is get_or_created by SKU (shared across channels). "
+            "With `PIM_ENFORCE_REQUIRED_ON_CREATE` on, a create that leaves a required feature of the set "
+            "without a stored value answers 400 (`REQUIRED_FEATURE_MISSING`, one detail per feature). "
+            "With `PIM_STRICT_CREATE` on, unknown features, options or categories answer 400 "
+            "(`UNRESOLVED_ATTRIBUTE` / `UNRESOLVED_CATEGORY`) instead of being dropped. "
+            "Unknown channel or feature set answer 400. Nothing is written on refusal."
+        ),
         parameters=[
             OpenApiParameter(
                 name="channel_idx",
@@ -400,7 +448,7 @@ class ProductViewSet(viewsets.ViewSet):
             )
         ],
         request=CreateProductRequest,
-        responses={201: ProductDetailResponse},
+        responses={201: ProductDetailResponse, 400: ErrorResponse},
     )
     def create(self, request: Request, channel_idx: str) -> Response:
         """Create a new product."""
@@ -436,10 +484,18 @@ class ProductViewSet(viewsets.ViewSet):
             detail.possible_duplicates = duplicates
             detail.lookup_warnings = lookup_warnings
             return Response(detail.model_dump(), status=status.HTTP_201_CREATED)
+        except RequiredFeaturesMissingError as exc:
+            return _required_missing_response(exc)
+        except UnresolvedAttributesError as exc:
+            return _unresolved_response(exc)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            return _unknown_reference_response("channel_idx", "path", f"Channel '{channel_idx}' not found.")
+        except FeatureSet.DoesNotExist:
+            return _unknown_reference_response(
+                "feature_set_idx", "body", f"Feature set '{data.feature_set_idx}' not found."
+            )
         except ObjectDoesNotExist:
             return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
