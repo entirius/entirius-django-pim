@@ -90,6 +90,7 @@ class GapDefinitionViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.quality"
 
     @extend_schema(
         summary="List gap definitions",
@@ -207,6 +208,7 @@ class GapFindingViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.quality"
 
     @extend_schema(
         summary="Bulk gap findings for a page of products",
@@ -305,6 +307,7 @@ class GapExemptionViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.quality"
 
     @extend_schema(
         summary="List a product's gap exemptions",
@@ -375,6 +378,7 @@ class GapOpsViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.quality"
 
     @extend_schema(summary="Trigger a full recompute now", request=None, responses={202: GapRecomputeResponse})
     def recompute(self, request: Request) -> Response:

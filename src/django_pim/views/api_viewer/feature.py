@@ -89,6 +89,9 @@ def view_features(request, idx=None, shop_idx=None, *args, **kwargs):
         return PaginatedResponse(pagination, response_data)
 
 
+view_features.access_area = "pim.schema"
+
+
 def get_feature(idx: str) -> Feature | None:
     if idx is None:
         raise Exception()
@@ -129,6 +132,9 @@ def view_feature_attributes(request, shop_idx=None, idx=None, *args, **kwargs):
     return PaginatedResponse(pagination, response_data)
 
 
+view_feature_attributes.access_area = "pim.schema"
+
+
 @api_view
 @staff_required
 @require_http_method("GET")
@@ -149,6 +155,9 @@ def view_feature_attribute(request, shop_idx=None, idx=None, attr_idx=None, *arg
 
     response_data = attribute_to_representation(attribute, request.channel, request.GET)
     return Response(response_data)
+
+
+view_feature_attribute.access_area = "pim.schema"
 
 
 @require_http_method("GET")
@@ -196,3 +205,6 @@ def view_attribute_extension(request, idx=None, attr_idx=None, *args, **kwargs):
         return view_feature_attribute_extension(request, idx, attr_idx, *args, **kwargs)
     else:
         return update_feature_attribute_extension(request, idx, attr_idx, *args, **kwargs)
+
+
+view_attribute_extension.access_area = "pim.schema"

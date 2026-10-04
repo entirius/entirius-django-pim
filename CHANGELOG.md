@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Access: the module declares its own access areas on its AppConfig and its admin views (copied from the
+  entirius-django-access defaults; behaviour unchanged).
+
 ## 3.3.1 — 2026-09-30
 
 - **Security fix: the legacy `/api-viewer/pim/` routes are staff-only.** All 11 routes answered without

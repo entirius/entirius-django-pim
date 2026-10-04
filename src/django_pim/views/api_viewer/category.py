@@ -79,3 +79,6 @@ def view_category(request, idx=None, shop_idx=None, *args, **kwargs):
         pagination, paginated_data = paginate_qs(params, filtered)
         response_data = [_to_repr(channel, params, elem) for elem in paginated_data]
         return PaginatedResponse(pagination, response_data)
+
+
+view_category.access_area = "pim.categories"
