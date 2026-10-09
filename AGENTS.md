@@ -24,6 +24,9 @@ features, feature sets, attributes, attributes groups, product links, pictures, 
 - Never rename the package / Django app_label / DB table prefix `django_pim` — it is a schema contract.
 - Migrations are part of the public contract — never edit an already released migration.
 - Default: do not commit — git is the user's call.
+- Access: areas live on the AppConfig (`access_areas`, `access_route_rules`), every admin view carries
+  `access_area`; a new admin route without one fails `tests/test_access_ownership.py`.
+
 ## Signals
 
 PIM publishes Django signals on model changes (Product, ProductAttribute, Feature, Attribute, etc.)
