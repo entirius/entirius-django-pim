@@ -4,6 +4,9 @@
 
 - Access: the module declares its own access areas on its AppConfig and its admin views (copied from the
   entirius-django-access defaults; behaviour unchanged).
+- OpenAPI: the quality-gap findings list and the `gaps/recompute/`, `gaps/status/` and `gaps/settings/` operations
+  carry the `Quality Gaps` tag (they fell back to the default tag); the product-list pagination example uses
+  `https://api.example.com`. Metadata only.
 
 ## 3.3.1 — 2026-09-30
 
