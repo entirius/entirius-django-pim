@@ -22,7 +22,7 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | Function | Direction | Purpose |
 |----------|-----------|---------|
 | `resolve_targets(scope_spec, page=1)` | READ | A scope → a page of SKUs (lazy, channel-scoped) |
-| `find_gaps(check, params, scope)` | READ | Quality-gap candidates from materialised `GapFinding` rows (etap-13) — see below |
+| `find_gaps(check, params, scope)` | READ | Quality-gap candidates from materialised `GapFinding` rows — see below |
 | `read_current(*, subject_ref, target_kind, target_locator)` | READ | Authoritative current value → drift / diff / undo snapshot |
 | `apply(proposal)` | WRITE | Write `proposed_value` into PIM (the only enrichment→PIM write site) |
 | `revert(proposal)` | WRITE | Restore `current_snapshot` (single-level undo) |
@@ -32,8 +32,8 @@ This file imports nothing from `django-enrichment` — the dependency points one
 The bus treats these as opaque — only this adapter reads them.
 
 - `subject_ref` = product SKU
-- `target_kind` = `"attribute_value"` (text) | `"picture"` (media, etap-08) | `"feature_set"`
-  (classification, featureset-cascade etap-02) | `"picture_alt"` (alt texts, etap-05-extra)
+- `target_kind` = `"attribute_value"` (text) | `"picture"` (media) | `"feature_set"`
+  (classification) | `"picture_alt"` (alt texts)
 
 | target_kind | `target_locator` | `proposed_value` | `current_snapshot` |
 |-------------|------------------|------------------|--------------------|
@@ -74,7 +74,7 @@ attribute already exists).
 (which falls back across languages) — a fallback would make drift comparisons and undo restore the
 wrong string.
 
-## Classification writes (`target_kind=feature_set`, featureset-cascade etap-02)
+## Classification writes (`target_kind=feature_set`)
 
 The first **classification gap**: the AI resolves it by picking an existing PIM entity (a
 `FeatureSet` idx, grounded by `GET feature-sets/` which returns idx/name/desc/is_default), not by
@@ -88,7 +88,7 @@ the structural finding and surfaces the now-applicable attribute gaps (the casca
 re-syncs set membership. No signal loop — the silent-`.update()` rule covers only the rollup columns
 written *inside* detection.
 
-## Alt-text writes (`target_kind=picture_alt`, featureset-cascade etap-05-extra)
+## Alt-text writes (`target_kind=picture_alt`)
 
 One proposal covers **all pictures of the product for one language** — the same granularity as the
 `picture_alt_present` finding (one sparse row per `(product, language)`, all roles). Picture pks
@@ -109,7 +109,7 @@ the finding and the enrichment loop would respawn the candidate forever). A **re
 contrast, may restore `""` (a snapshotted empty state) and treats an empty snapshot
 (`{"alts": {}}` — no pictures at intake) as a no-op.
 
-## find_gaps (etap-13)
+## find_gaps
 
 `check` = a `GapDefinition.key`; unknown → `ValueError` (the bus surfaces it as a 400).
 `scope.channel` is required; `scope.language` optionally narrows (language-neutral `NULL` findings
@@ -121,7 +121,7 @@ Reads the **materialised** `GapFinding` table (never recomputes live):
 - `inherited=False` only — an inherited gap is fixed on the source channel; writing on an
   inheriting channel would create unwanted `overridden_langs` overrides.
 - Deep-muted targets are absent for free: a `GapExemption` stops detection from ever writing the
-  finding (see AGENTS.md § Quality Gaps).
+  finding (see `docs/quality.md` § Implementation Notes).
 - Stable paging by `(product_id, language)`, page size 100 (`scope["page"]`, injected by the bus).
 
 One finding → one plain-dict candidate (gaps-per-module shape):
@@ -142,11 +142,11 @@ One finding → one plain-dict candidate (gaps-per-module shape):
 The bus post-filters these against in-flight proposals and re-pulls page 1 as a work queue —
 that contract lives bus-side (`django-enrichment` `docs/spawn-surfaces.md` § Gap spawn).
 
-## Scope limits (etap-04)
+## Scope limits
 
 - Text only: `apply`/`revert` raise `ValueError` for non-`*_T9N` features (a t9n payload sent to a
   scalar feature would otherwise be silently dropped by `_set_product_attributes`).
-- Media apply (`target_kind=picture`) is etap-08; mass async apply is etap-09.
+- Mass async apply is not part of this adapter.
 
 ## Tests
 
@@ -157,3 +157,29 @@ filter/list, non-t9n rejection. Run inside Docker:
 ```bash
 PIM_TEST_DB_HOST=db python -m pytest tests/test_enrichment_adapter.py -q
 ```
+
+## Summary
+
+`services/enrichment_adapter.py` is PIM's read/write boundary for the **django-enrichment** bus —
+the *referential* adapter (the adapter lives in the source module, not the bus). The
+bus loads it lazily by dotted module path from the host service's `ENRICHMENT_ADAPTERS = {"pim":
+"django_pim.services.enrichment_adapter"}` and calls five duck-typed module-level functions
+(`resolve_targets`, `find_gaps`, `read_current`, `apply`, `revert`). It imports nothing from
+django-enrichment — the dependency points one way (bus → contract).
+
+Two gotchas it owns so the bus stays dumb: **read-merge-write** (PIM's write path replaces the whole
+`value_txt_t9n` per feature, so a single-language write merges into the full dict — never lose
+sibling languages) and **inheritance override** (a write on an inheriting secondary channel marks
+the language in `overridden_langs` so materialisation won't clobber it; no-op on the default channel
+or non-inheriting products). Five target_kinds: `attribute_value` (text, `*_T9N` features),
+`picture` (replace_main), `feature_set` (classification — AI picks an existing set idx;
+apply uses `product.save(update_fields=["feature_set"])` so the gap-recompute cascade and Matrix
+sync fire), `category` (classification — AI picks existing categories,
+`{"category_idxs": [...]}`, full-replace via `product_service.update_product`; apply requires a
+non-empty list, revert restores the snapshot incl. empty = "no categories"; pairs with the
+`category_present` gap), `picture_alt` (alt texts, one proposal =
+ALL pictures × ONE language, `{"alts": {"<picture_pk>": alt}}` with STRING pk keys (JSON), per-picture
+read-merge-write on `alt_text_t9n`, all-or-nothing via `transaction.atomic`, writes through
+`pp.save(update_fields=["alt_text_t9n"])`). `find_gaps`
+reads materialised `GapFinding` rows (`check` = `GapDefinition.key`, `inherited` excluded,
+deep-muted targets absent by construction) and returns plain-dict candidates — the full contract is above.
