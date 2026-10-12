@@ -238,6 +238,7 @@ class GapFindingViewSet(viewsets.ViewSet):
             ),
         ],
         responses={200: GapFindingsBulkResponse},
+        tags=["Quality Gaps"],
     )
     def list(self, request: Request, channel_idx: str) -> Response:
         try:
@@ -380,7 +381,12 @@ class GapOpsViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
     access_area = "pim.quality"
 
-    @extend_schema(summary="Trigger a full recompute now", request=None, responses={202: GapRecomputeResponse})
+    @extend_schema(
+        summary="Trigger a full recompute now",
+        request=None,
+        responses={202: GapRecomputeResponse},
+        tags=["Quality Gaps"],
+    )
     def recompute(self, request: Request) -> Response:
         try:
             result = trigger_full_recompute()
@@ -390,14 +396,14 @@ class GapOpsViewSet(viewsets.ViewSet):
         except Exception as e:
             return internal_error(e)
 
-    @extend_schema(summary="Quality recompute status", responses={200: GapStatusResponse})
+    @extend_schema(summary="Quality recompute status", responses={200: GapStatusResponse}, tags=["Quality Gaps"])
     def status(self, request: Request) -> Response:
         try:
             return Response(GapStatusResponse(**get_gaps_status()).model_dump(), status=status.HTTP_200_OK)
         except Exception as e:
             return internal_error(e)
 
-    @extend_schema(summary="Quality gaps settings", responses={200: GapSettingsResponse})
+    @extend_schema(summary="Quality gaps settings", responses={200: GapSettingsResponse}, tags=["Quality Gaps"])
     def get_settings(self, request: Request) -> Response:
         try:
             return Response(GapSettingsResponse(**get_gaps_settings()).model_dump(), status=status.HTTP_200_OK)
@@ -408,6 +414,7 @@ class GapOpsViewSet(viewsets.ViewSet):
         summary="Update quality gaps settings",
         request=UpdateGapSettingsRequest,
         responses={200: GapSettingsResponse},
+        tags=["Quality Gaps"],
     )
     def patch_settings(self, request: Request) -> Response:
         try:
