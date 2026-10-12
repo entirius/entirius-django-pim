@@ -17,6 +17,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from ..models import Channel, Picture, PictureRoleEnum, Product, ProductPicture
+from ..utils.temp_suffix import safe_temp_suffix
 from .lookup_provider import touch_real_product as _touch_real_product
 
 # Maps API ordering params to actual DB field paths.
@@ -85,7 +86,7 @@ def upload_picture(image_file) -> Picture:
     image_file.seek(0)
 
     # Write to a temp file so HashedImageFieldFile can use magic.from_file()
-    with tempfile.NamedTemporaryFile(suffix=f"_{image_file.name}", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=safe_temp_suffix(image_file.name), delete=False) as tmp:
         for chunk in image_file.chunks():
             tmp.write(chunk)
         tmp_path = tmp.name

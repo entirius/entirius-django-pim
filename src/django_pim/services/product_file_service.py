@@ -18,6 +18,7 @@ from django.db.models import QuerySet
 
 from ..models import Channel, Files, FilesCategory, Product, ProductFile
 from ..models.files import FileRoleEnum
+from ..utils.temp_suffix import safe_temp_suffix
 
 FILE_TYPE_MAP = {
     "undefined": FileRoleEnum.UNDEFINED,
@@ -105,7 +106,7 @@ def upload_file(
     file_obj.seek(0)
 
     # Write to a temp file so HashedFileFieldFile can use magic.from_file()
-    with tempfile.NamedTemporaryFile(suffix=f"_{file_obj.name}", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=safe_temp_suffix(file_obj.name), delete=False) as tmp:
         for chunk in file_obj.chunks():
             tmp.write(chunk)
         tmp_path = tmp.name
