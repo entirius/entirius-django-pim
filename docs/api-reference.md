@@ -1141,3 +1141,70 @@ Write operations (create/update/delete) use global routes. Read operations are a
 | `Attributes Groups` | `AttributesGroupViewSet` -- all actions |
 
 Browsable API reference rendered by starlight-openapi at `/api/reference/`. Swagger UI: `http://localhost:8000/api/docs/`.
+
+## Admin API v2 Overview
+
+All endpoints: JWT + IsAdminUser. Prefix: `/api/pim/v2/admin/`
+
+```
+pim/admin/
+├── {channel_idx}/                          # Channel-scoped resources
+│   ├── products/                           GET (list), POST (create)
+│   │   ├── bulk/                           POST (bulk update)
+│   │   ├── {sku}/                          GET (detail), PATCH, DELETE
+│   │   ├── {sku}/links/                    GET (list), POST (create)
+│   │   │   └── {pk}/                       GET, PATCH, DELETE
+│   │   ├── {sku}/pictures/                 GET (list), POST (link or upload+link)
+│   │   │   └── {pk}/                       GET, PATCH, DELETE (unlink)
+│   │   ├── {sku}/files/                    GET (list), POST (link or upload+link)
+│   │   │   └── {pk}/                       DELETE (unlink)
+│   │   ├── {sku}/videos/                   GET (list), POST (create)
+│   │   │   └── {pk}/                       GET, PATCH, DELETE
+│   │   ├── {sku}/copy-attributes/           POST (copy from source channel)
+│   │   ├── {sku}/copy-translations/        POST (alias for copy-attributes)
+│   │   ├── {sku}/add-to-channel/           POST (create on target channel)
+│   │   ├── {sku}/toggle-override/          POST (toggle language inheritance)
+│   │   └── {sku}/toggle-media-override/    POST (toggle media inherited/local)
+│   ├── gaps/findings/                      GET (bulk findings for ?product_ids=, +language/severity/only_source)
+│   ├── gaps/exemptions/                    GET (?sku=), POST (mute a rule for a product)
+│   │   └── {pk}/                           DELETE (unmute)
+│   ├── categories/                         GET (list), POST (create)
+│   │   └── {idx}/                          GET (detail), PATCH, DELETE
+│   ├── features/                           GET (channel-scoped list)
+│   │   └── {idx}/                          GET (channel-scoped detail)
+│   │       └── attributes/                 GET (attributes for feature)
+│   ├── feature-sets/                       GET (channel-scoped list)
+│   │   └── {idx}/                          GET (channel-scoped detail)
+│   │       └── features/                   GET (features in set)
+│   └── attributes-groups/                  GET (channel-scoped list)
+│       └── {idx}/                          GET (channel-scoped detail)
+│
+├── gap-definitions/                        GET (list), POST (create)   # quality rules (global)
+│   └── {key}/                              GET, PATCH, DELETE
+├── gaps/recompute/                         POST (trigger full recompute → 202 + lock status)
+├── gaps/status/                            GET (rules-changed vs recomputed + recompute_running)
+├── gaps/settings/                          GET, PATCH (gaps_skip_default_featureset — CMS toggle)
+├── link-types/                             GET (list), POST (create)
+│   └── {idx}/                              GET, PATCH, DELETE
+├── pictures/upload/                        POST (multipart, 10MB max)
+├── files-categories/                       GET (list), POST (create)
+│   └── {code}/                             GET, PATCH, DELETE
+├── files/upload/                           POST (multipart, 50MB max)
+├── features/                               GET (list), POST (create)
+│   ├── {idx}/                              GET, PATCH, DELETE
+│   │   └── attributes/                     GET (attributes for feature)
+│   └── {feature_idx}/attributes/           POST (create attribute)
+├── feature-sets/                           GET (list), POST (create)
+│   └── {idx}/                              GET, PATCH, DELETE
+│       └── features/                       GET, POST (bulk add), DELETE (bulk remove)
+├── attributes/                             GET (list)
+│   └── {feature_idx}/{idx}/               GET, PATCH, DELETE  (composite key)
+└── attributes-groups/                      GET (list), POST (create)
+    └── {idx}/                              GET, PATCH, DELETE
+```
+
+**Scope rules:**
+- **Channel-scoped** (Products, Categories, sub-resources): all CRUD under `{channel_idx}/`
+- **Global + channel read** (Features, Feature Sets, Attributes Groups): writes global, reads both
+- **Global only** (Attributes, Link Types, Files Categories): composite key or idx/code
+- **Upload endpoints** (Pictures, Files): global, SHA1 dedup, multipart

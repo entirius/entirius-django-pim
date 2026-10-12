@@ -1,7 +1,21 @@
 [project]
 name = "entirius-django-pim"
-version = "3.3.1"
-description = "PIM (Product Information Management) Django module for the Volkanos ecommerce platform"
+version = "3.4.0"
+description = "Product information module for Entirius: products, categories, features, attributes and media per sales channel"
+keywords = ["django", "pim", "product-catalog", "ecommerce", "headless", "entirius"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+]
 authors = [{ name = "Entirius" }]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,7 +52,11 @@ dev  = ["ruff", "pre-commit"]
 test = ["pytest", "pytest-django", "factory-boy", "dj-database-url", "psycopg[binary]"]
 
 [project.urls]
+Homepage = "https://docs.entirius.com/"
+Documentation = "https://github.com/entirius/entirius-django-pim/tree/develop/docs"
 Repository = "https://github.com/entirius/entirius-django-pim"
+Changelog = "https://github.com/entirius/entirius-django-pim/blob/develop/CHANGELOG.md"
+Issues = "https://github.com/entirius/entirius-django-pim/issues"
 
 [build-system]
 requires = ["hatchling"]

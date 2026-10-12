@@ -324,3 +324,6 @@ def view_products(request, sku=None, shop_idx=None, *args, **kwargs):
         pagination, paginated_data = paginate_qs(request.GET, filtered_data)
         response_data = to_response(channel, request.GET, paginated_data)
         return PaginatedResponse(pagination, response_data)
+
+
+view_products.access_area = "pim.products"

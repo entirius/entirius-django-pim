@@ -114,6 +114,7 @@ class ProductViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
 
     @extend_schema(
         summary="List products",
@@ -212,7 +213,7 @@ class ProductViewSet(viewsets.ViewSet):
                 description="A typical page of products in the default-europe channel.",
                 value={
                     "count": 142,
-                    "next": "http://localhost:8000/api/pim/v2/admin/default-europe/products/?page=2",
+                    "next": "https://api.example.com/api/pim/v2/admin/default-europe/products/?page=2",
                     "previous": None,
                     "results": [
                         {

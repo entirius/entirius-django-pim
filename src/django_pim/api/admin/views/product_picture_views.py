@@ -66,6 +66,7 @@ class PictureUploadView(APIView):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
     parser_classes = [MultiPartParser]
 
     @extend_schema(
@@ -107,6 +108,7 @@ class ProductPictureViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
     parser_classes = [JSONParser, MultiPartParser]
 
     @extend_schema(

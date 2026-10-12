@@ -75,6 +75,7 @@ class CategoryViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.categories"
 
     @extend_schema(
         summary="List categories",

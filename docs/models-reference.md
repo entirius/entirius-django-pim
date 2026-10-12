@@ -1463,3 +1463,69 @@ All models are registered in `admin.py`. Key admin classes and notable configura
 | `ConfigurableLink` | `ConfigurableLinkAdmin` | All fields readonly; shows subproduct feature idx |
 | `BundleLink` | `BundleLinkAdmin` | Autocomplete on product_bundle, subproduct, section |
 | `AttributesGroup` | `AttributesGroupAdmin` | Registered via `@admin.register` decorator |
+
+## Product Model Overview
+
+```
+RealProduct (sku↑, ean, weight, width, height, deep)     ← shared across channels
+    └── Product (visibility, is_enabled, product_class)    ← per channel + feature_set
+         ├── ProductAttribute (feature + value_*)           ← per feature in feature_set
+         ├── ProductInCategory (category + position)
+         ├── ProductPicture (picture + role + language)
+         ├── ProductVideo, ProductFile, ProductPrice
+         └── ProductLink (related/crosssell/upsell)
+              └── Subtypes: Simple | Configurable | Bundle | Custom  (O2O inheritance)
+```
+
+Inheritance (3 independent flags per product):
+- Product.inherit_attributes (bool) — inherits all features EXCEPT name/description/short_description
+- Product.inherit_descriptions (bool) — inherits name, description, short_description
+- Product.inherit_images (bool) — inherits ProductPicture, ProductVideo, ProductFile
+- ProductAttribute.overridden_langs (JSONField) — per-attribute language override tracking
+- ProductPicture/ProductVideo/ProductFile.is_inherited (bool) — marks inherited media
+- Channel.is_default (bool) — source of truth for inheritance
+- Channel.inheritance_enabled (bool) — master switch per channel
+- Channel.default_inheritance_flags (JSONField) — defaults for new products (["attributes", "descriptions", "images"])
+- DESCRIPTION_FEATURE_IDXS = {"name", "description", "short_description"} — categorizes features
+- Propagation: default channel update → inheriting products re-materialized (attributes + media)
+
+- `create_product` → `get_or_create` RealProduct by SKU (reuses across channels)
+- `update_product` → shared fields (weight, EAN) affect ALL channels
+- `delete_product` → removes channel Product only, not RealProduct
+- PATCH `attributes` → replaces per `feature_idx`, untouched features stay
+- PATCH `category_idxs` → full replace of all assignments
+
+## Key Enums Overview
+
+| Enum | Values |
+|------|--------|
+| **FeatureType** | BOOL(1), DECIMAL(2), VARCHAR255(3), VARCHAR255_T9N(4), TEXT(5), TEXT_T9N(6), SELECT(7), MULTISELECT(8), JSON(9), DATETIME(10), JSON_T9N(11), TEMPERATURE(12), LENGTH(13), MASS(14) |
+| **FeatureScope** | SYSTEM(1), ~~GLOBAL(2)~~ (deprecated→BU), BUSINESS_UNIT(3) |
+| **ProductClass** | Simple(1), Configurable(2), Bundle(3), Custom(4) |
+| **Visibility** | NOT_VISIBLE(1), CATALOG(2), SEARCH(3), CATALOG_AND_SEARCH(4) |
+| **PictureRole** | MAIN(1), GENERAL(2), VARIANT(3), ANGLE(4) |
+| **VideoRole** | UNKNOWN(0), MAIN(1), VARIANT(2) |
+| **FileRole** | UNDEFINED(0), PICTURE(1), PDF(2), DOC(3), VIDEO(4) |
+| **VideoSource** | youtube, vimeo, unknown (TextChoices, auto-detected from URL) |
+
+## Unique Constraints Overview
+
+| Model | Field(s) | Type |
+|-------|----------|------|
+| Feature | `idx` | unique |
+| FeatureSet | `idx` | unique |
+| AttributesGroup | `idx` | unique (migration 0048) |
+| ProductCategory | `(shop, idx)` | UniqueConstraint |
+| RealProduct | `Lower(sku)` | UniqueConstraint |
+| Attribute | `(feature, idx)` | UniqueConstraint (composite key) |
+| ProductAttribute | `(product, feature, attribute)` | UniqueConstraint |
+| ProductInCategory | `(product, category)` | unique |
+| ProductLinkType | `idx` | unique |
+| FilesCategory | `code` | unique |
+| ProductLink | `(product, linked_product, link_type)` | unique_together |
+| ProductFile | `(product, file)` | unique_together |
+| ProductPicture (MAIN) | `(product, picture_role, language)` | UniqueConstraint (conditional) |
+| ProductVideo (MAIN) | `(product, video_role, language)` | UniqueConstraint (conditional) |
+| GapDefinition | `key` | unique |
+| GapFinding | `(product, definition, language)` | unique_together |
+| GapExemption | `(product, definition, language)` | UniqueConstraint (`nulls_distinct=False`) |

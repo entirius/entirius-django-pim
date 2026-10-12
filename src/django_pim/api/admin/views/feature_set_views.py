@@ -94,6 +94,7 @@ class FeatureSetViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.schema"
 
     @extend_schema(
         summary="List feature sets",

@@ -48,3 +48,6 @@ def view_feature_sets(request, idx=None, shop_idx=None, *args, **kwargs):
         pagination, paginated_data = paginate_qs(request.GET, filtered_data)
         response_data = [_to_repr(request.GET, elem, channel) for elem in paginated_data]
         return PaginatedResponse(pagination, response_data)
+
+
+view_feature_sets.access_area = "pim.schema"

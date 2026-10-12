@@ -67,6 +67,7 @@ class ProductVideoViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
 
     @extend_schema(
         summary="List product videos",

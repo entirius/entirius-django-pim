@@ -64,6 +64,7 @@ class FileUploadView(APIView):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
     parser_classes = [MultiPartParser]
 
     @extend_schema(
@@ -126,6 +127,7 @@ class ProductFileViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
     parser_classes = [JSONParser, MultiPartParser]
 
     @extend_schema(
@@ -283,6 +285,7 @@ class FileUpdateView(APIView):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
+    access_area = "pim.products"
     parser_classes = [JSONParser]
 
     @extend_schema(
