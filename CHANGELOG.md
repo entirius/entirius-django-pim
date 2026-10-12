@@ -8,6 +8,12 @@
   carry the `Quality Gaps` tag (they fell back to the default tag); the product-list pagination example uses
   `https://api.example.com`. Metadata only.
 
+### Security
+
+- File and picture upload: the temporary file takes only the sanitised extension of the uploaded name (ASCII
+  letters, digits and dots, at most 16 characters) instead of the whole name, so path separators in a name
+  never reach the temp file's path (such a name failed the upload with an unhandled error). The stored file, its type and `original_file_name` are unchanged.
+
 ## 3.3.1 — 2026-09-30
 
 - **Security fix: the legacy `/api-viewer/pim/` routes are staff-only.** All 11 routes answered without
