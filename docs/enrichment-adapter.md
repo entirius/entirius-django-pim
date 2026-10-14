@@ -149,11 +149,13 @@ The AI studio builds its field pickers, prompts and response schemas from this c
   `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
 - `make_locator` returns `{channel, language, feature_idx}` — `language` lowercased for text, `None` for selects;
   unknown or non-writable field, or a text field without a language → `ValueError`.
-- `field_key(locator=...)` returns `locator["feature_idx"]`. Without it the bus falls back to `locator["field"]`,
-  which PIM locators never carry, so corrections would run without the field's catalog entry.
+- `field_key(locator=...)` returns `locator.get("feature_idx")` — None for `picture_alt` and `video` locators,
+  which carry no catalog field (the bus then revises without catalog meta). Without it the bus falls back to
+  `locator["field"]`, which PIM locators never carry, so corrections would run without the field's catalog entry.
 - Conformance: `tests/test_enrichment_conformance.py` runs the enrichment adapter conformance kit for text, select,
   multiselect and video targets (video through a small bus stand-in that stages the binary and records
-  `applied_snapshot`, as `apply_service` does).
+  `applied_snapshot`, as `apply_service` does). Until the kit ships in an enrichment release the module skips
+  unless the kit is installed by hand: `uv pip install -e ../entirius-django-enrichment`.
 
 ## Select writes (`attribute_value` on SELECT / MULTISELECT)
 
