@@ -4,17 +4,13 @@
 
 """The PIM adapter against the shared enrichment adapter conformance kit.
 
-Targets: `attribute_value` text, select and multiselect, and `video`. The kit is test-only
-(`entirius-django-enrichment` sits in the `test` extra); the adapter itself still imports nothing from it.
+Targets: `attribute_value` text, select and multiselect, and `video`. The kit is test-only and not released
+yet: the module skips unless `entirius-django-enrichment` is installed (see the `test` extra in pyproject.toml).
+The adapter itself imports nothing from it.
 """
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django_enrichment.testing.adapter_conformance import (
-    AdapterConformance,
-    ConformanceCase,
-    FieldCatalogConformance,
-)
 
 from django_pim.models import FeatureTypeEnum, ProductAttribute
 from django_pim.services import enrichment_adapter, product_file_service
@@ -29,6 +25,14 @@ from .factories import (
     ProductFactory,
     RealProductFactory,
 )
+
+kit = pytest.importorskip(
+    "django_enrichment.testing.adapter_conformance",
+    reason="enrichment conformance kit not installed (unreleased: uv pip install -e ../entirius-django-enrichment)",
+)
+AdapterConformance = kit.AdapterConformance
+ConformanceCase = kit.ConformanceCase
+FieldCatalogConformance = kit.FieldCatalogConformance
 
 SKU = "CONF-1"
 

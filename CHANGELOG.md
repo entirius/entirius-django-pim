@@ -20,8 +20,11 @@
   language (the language is lowercased); the inherited-select guard and the `overridden_langs` marker follow the
   materialisation rules (channel `inheritance_enabled`, feature `exclude_from_inheritance`).
 - Enrichment adapter: `field_key(locator)` (inverse of `make_locator`) so the bus finds the catalog entry of a
-  PIM locator; the adapter passes the enrichment adapter conformance kit for text, select, multiselect and video
-  targets (`entirius-django-enrichment` joins the `test` extra only).
+  PIM locator (None for `picture_alt` and `video` locators); the adapter passes the enrichment adapter
+  conformance kit for text, select, multiselect and video targets. The kit is not released yet, so
+  `tests/test_enrichment_conformance.py` skips unless it is installed by hand
+  (`uv pip install -e ../entirius-django-enrichment`); `entirius-django-enrichment>=2.3.0` joins the `test`
+  extra once released.
 
 ## 3.4.0 — 2026-10-12
 

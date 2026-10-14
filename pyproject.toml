@@ -49,13 +49,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev  = ["ruff", "pre-commit"]
-# entirius-django-enrichment: its adapter conformance kit (tests/test_enrichment_conformance.py) — never a runtime dep
-test = ["pytest", "pytest-django", "factory-boy", "dj-database-url", "psycopg[binary]", "entirius-django-enrichment>=2.2.0"]
-
-# The conformance kit is not released yet — resolve the sibling clone (zeno repos/django layout) until the next
-# enrichment release, then drop this table.
-[tool.uv.sources]
-entirius-django-enrichment = { path = "../entirius-django-enrichment", editable = true }
+# tests/test_enrichment_conformance.py needs the enrichment adapter conformance kit, first shipped after
+# entirius-django-enrichment 2.2.0: add "entirius-django-enrichment>=2.3.0" here once released. Until then the
+# test skips unless the kit is installed by hand (`uv pip install -e ../entirius-django-enrichment`).
+test = ["pytest", "pytest-django", "factory-boy", "dj-database-url", "psycopg[binary]"]
 
 [project.urls]
 Homepage = "https://docs.entirius.com/"
