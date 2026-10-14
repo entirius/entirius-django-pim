@@ -1311,6 +1311,14 @@ def _chosen(product, feature):
     )
 
 
+def _system_text_feature(idx):
+    """Migrations seed some system features (canonical_url, og_image) — reuse them when present."""
+    models.Feature.objects.get_or_create(
+        idx=idx,
+        defaults={"feature_type": FeatureTypeEnum.VARCHAR255_T9N, "scope": models.FeatureScopeEnum.SYSTEM},
+    )
+
+
 @pytest.mark.django_db
 class TestDescribeFields:
     def _catalog(self):
@@ -1395,6 +1403,27 @@ class TestDescribeFields:
         with pytest.raises(ObjectDoesNotExist):
             enrichment_adapter.describe_fields(channel="nope")
 
+    def test_route_and_seo_system_fields_are_not_listed(self):
+        channel = self._catalog()
+        for idx in ("url_key", "canonical_url", "og_image"):
+            _system_text_feature(idx)
+
+        keys = {f["key"] for f in enrichment_adapter.describe_fields(channel=channel.idx)}
+
+        assert keys.isdisjoint({"url_key", "canonical_url", "og_image"})
+
+    def test_seo_text_is_capped_plain_text(self):
+        channel = _en_channel()
+        FeatureFactory(
+            idx="meta_description", feature_type=FeatureTypeEnum.TEXT_T9N, scope=models.FeatureScopeEnum.SYSTEM
+        )
+        FeatureFactory(idx="enr_seo_note", feature_type=FeatureTypeEnum.TEXT_T9N, is_seo=True)
+
+        fields = {f["key"]: f for f in enrichment_adapter.describe_fields(channel=channel.idx)}
+
+        for key in ("meta_description", "enr_seo_note"):
+            assert (fields[key]["type"], fields[key]["max_length"]) == ("text", 255)
+
 
 @pytest.mark.django_db
 class TestChannelLanguagesAndLocator:
@@ -1431,6 +1460,13 @@ class TestChannelLanguagesAndLocator:
             enrichment_adapter.make_locator(field_key="enr_weight", channel="c1", language="en")
         with pytest.raises(ValueError, match="unknown feature_idx"):
             enrichment_adapter.make_locator(field_key="nope", channel="c1", language="en")
+
+    @pytest.mark.parametrize("field_key", ["url_key", "canonical_url", "og_image"])
+    def test_route_and_seo_system_fields_are_rejected(self, field_key):
+        _system_text_feature(field_key)
+
+        with pytest.raises(ValueError, match="not a writable field"):
+            enrichment_adapter.make_locator(field_key=field_key, channel="c1", language="en")
 
 
 @pytest.mark.django_db
@@ -1548,6 +1584,34 @@ class TestSelectValues:
 
         rows = ProductAttribute.objects.filter(product=product, feature=feature)
         assert [row.overridden_langs for row in rows] == [["*"], ["*"]]
+
+    @pytest.mark.parametrize(("multi", "value"), [(False, {"option": ""}), (True, {"options": []})])
+    def test_apply_refuses_to_clear_inherited_select_on_secondary_channel(self, multi, value):
+        channel = ChannelFactory(is_default=False, inheritance_enabled=True)
+        channel, product, feature = self._setup(multi=multi, channel=channel)
+        product.inherit_attributes = True
+        product.save(update_fields=["inherit_attributes"])
+        _choose(product, feature, "red")
+        proposal = _Proposal(subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value=value)
+
+        with pytest.raises(ValueError, match="cannot clear an inherited select"):
+            enrichment_adapter.apply(proposal)
+
+        assert _chosen(product, feature) == ["red"]
+
+    def test_revert_may_clear_inherited_select(self):
+        channel = ChannelFactory(is_default=False, inheritance_enabled=True)
+        channel, product, feature = self._setup(multi=True, channel=channel)
+        product.inherit_attributes = True
+        product.save(update_fields=["inherit_attributes"])
+        _choose(product, feature, "red")
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), current_snapshot={"options": []}
+        )
+
+        enrichment_adapter.revert(proposal)
+
+        assert _chosen(product, feature) == []
 
     def test_build_context_includes_select_labels(self):
         channel = _en_channel()

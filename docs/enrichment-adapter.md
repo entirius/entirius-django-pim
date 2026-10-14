@@ -140,6 +140,9 @@ The AI studio builds its field pickers, prompts and response schemas from this c
 - Fields = every feature of type VARCHAR255_T9N (`text`, `max_length` 255), TEXT_T9N (`html` — the CMS edits it
   with the wysiwyg editor) and SELECT / MULTISELECT. PIM features are global, so all channels see the same list;
   the channel only picks the label language. Scalar, JSON and datetime features are not writable here.
+- SEO text (`is_seo` or `meta_title` / `meta_description`) is `text` with `max_length` 255 whatever its storage
+  type — it lands in meta tags, so no markup and a cap. `url_key`, `canonical_url` and `og_image` drive routes
+  and SEO, not content: they are never listed, and `make_locator` rejects them.
 - Labels in `language`, then the channel's main language, then the idx. `language=""` = main language.
 - Options ordered by `display_order`, `idx`; at most 200 per field (a window function caps them in SQL) with
   `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
@@ -154,7 +157,9 @@ and every idx against the feature's options — an unknown idx or one of another
 anything is written. `""` / `[]` clears the feature (that is how revert restores "no value"). The write goes
 through `product_service.update_product` (`attribute_idx` / `attribute_idxs`); on an inheriting secondary channel
 every row is marked `overridden_langs=["*"]`, the marker `inheritance_service` uses for language-neutral values.
-A cleared select on an inheriting channel leaves no row to mark, so the next materialisation may refill it.
+A cleared select on an inheriting channel would leave no row to mark (the next materialisation would refill it),
+so `apply` refuses it with `ValueError` — disable attribute inheritance first. `revert` may clear it: the refill
+restores the inherited state the snapshot recorded.
 
 ## Prompt context (`build_context`)
 

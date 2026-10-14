@@ -113,7 +113,13 @@ from ..models import (
     ProductFile,
     ProductPicture,
 )
-from ..settings import DESCRIPTION_FEATURE_IDXS
+from ..settings import (
+    DESCRIPTION_FEATURE_IDXS,
+    SEO_FEATURE_IDXS,
+    SYSTEM_FEATURE_CANONICAL_URL_IDX,
+    SYSTEM_FEATURE_OG_IMAGE_IDX,
+    SYSTEM_FEATURE_URL_KEY_IDX,
+)
 from . import product_file_service, product_picture_service, product_service
 
 # How many SKUs a worker pulls per `resolve_targets` page. The bus passes `page`; we never
@@ -135,6 +141,12 @@ _FIELD_SHAPES = {
     FeatureTypeEnum.MULTISELECT: ("multiselect", None, False),
 }
 _MAX_OPTIONS = 200
+# SEO text lands in meta tags: plain text, capped, whatever the storage type.
+_SEO_TEXT_SHAPE = ("text", 255, True)
+# System fields that drive routes and SEO, not content — never offered to (or addressable by) the AI.
+_NON_WRITABLE_IDXS = frozenset(
+    {SYSTEM_FEATURE_URL_KEY_IDX, SYSTEM_FEATURE_CANONICAL_URL_IDX, SYSTEM_FEATURE_OG_IMAGE_IDX}
+)
 
 # list_products kwargs an external scope may drive. Anything else in `filters` is ignored rather
 # than passed through (avoids a worker injecting arbitrary kwargs).
@@ -230,6 +242,9 @@ def apply(proposal) -> None:
             alts=alts,
         )
         return
+    _reject_inherited_select_clear(
+        proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value
+    )
     _write_attribute(proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value)
 
 
@@ -508,6 +523,26 @@ def _write_select(channel_idx: str, *, subject_ref: str, feature: Feature, value
     _mark_overridden_if_inheriting(product, feature, None)
 
 
+def _reject_inherited_select_clear(target_locator: dict, *, subject_ref: str, value: dict) -> None:
+    """Apply-only guard: a cleared select on an inheriting secondary channel leaves no row to mark
+    overridden, so the next materialisation would silently copy the source values back."""
+    channel_idx, _language, feature_idx = _locator(target_locator)
+    feature = _get_feature(feature_idx)
+    if feature.feature_type not in _SELECT_TYPES or _requested_options(feature, value):
+        return
+    if _inherits(product_service.get_product_by_sku(channel_idx, subject_ref), feature):
+        raise ValueError("cannot clear an inherited select on a secondary channel; disable attribute inheritance first")
+
+
+def _inherits(product, feature: Feature) -> bool:
+    """True when a write to `feature` on this product would be clobbered by materialisation."""
+    if product.shop.is_default:
+        return False
+    if feature.idx in DESCRIPTION_FEATURE_IDXS:
+        return product.inherit_descriptions
+    return product.inherit_attributes
+
+
 def _mark_overridden_if_inheriting(product, feature: Feature, language: str | None) -> None:
     """Mark the write overridden so materialisation won't clobber it — only where it matters.
 
@@ -518,10 +553,7 @@ def _mark_overridden_if_inheriting(product, feature: Feature, language: str | No
     going through `toggle_language_override` (which raises unless inheritance is enabled and the
     attribute exists).
     """
-    if product.shop.is_default:
-        return
-    inherits = product.inherit_descriptions if feature.idx in DESCRIPTION_FEATURE_IDXS else product.inherit_attributes
-    if not inherits:
+    if not _inherits(product, feature):
         return
     marker = language or "*"
     for attr in ProductAttribute.objects.filter(product=product, feature=feature):
@@ -803,7 +835,11 @@ def describe_fields(*, channel: str, language: str = "") -> list[dict]:
     `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
     """
     langs = _label_languages(channel, language)
-    features = list(Feature.objects.filter(feature_type__in=_FIELD_SHAPES).order_by("display_order", "idx"))
+    features = list(
+        Feature.objects.filter(feature_type__in=_FIELD_SHAPES)
+        .exclude(idx__in=_NON_WRITABLE_IDXS)
+        .order_by("display_order", "idx")
+    )
     options = _feature_options([f.pk for f in features if f.feature_type in _SELECT_TYPES])
     return [_describe_field(feature, langs, options.get(feature.pk, [])) for feature in features]
 
@@ -836,7 +872,7 @@ def _feature_options(feature_ids: list[int]) -> dict[int, list[tuple[str, dict]]
 
 
 def _describe_field(feature: Feature, langs: tuple[str, str], options: list[tuple[str, dict]]) -> dict:
-    field_type, max_length, translatable = _FIELD_SHAPES[feature.feature_type]
+    field_type, max_length, translatable = _field_shape(feature)
     field = {
         "key": feature.idx,
         "label": _first_language(feature.name_t9n, langs) or feature.idx,
@@ -852,6 +888,12 @@ def _describe_field(feature: Feature, langs: tuple[str, str], options: list[tupl
     return field
 
 
+def _field_shape(feature: Feature) -> tuple[str, int | None, bool]:
+    if feature.feature_type in _T9N_TEXT_TYPES and (feature.is_seo or feature.idx in SEO_FEATURE_IDXS):
+        return _SEO_TEXT_SHAPE
+    return _FIELD_SHAPES[feature.feature_type]
+
+
 def channel_languages(*, channel: str) -> list[str]:
     """The channel's languages as lowercase iso2, main language first, the rest sorted."""
     record = _get_channel(channel)
@@ -865,6 +907,8 @@ def make_locator(*, field_key: str, channel: str, language: str | None) -> dict:
 
     Raises `ValueError` for an unknown or non-writable field, or a text field without a language.
     """
+    if field_key in _NON_WRITABLE_IDXS:
+        raise ValueError(f"feature {field_key!r} is not a writable field (system route/SEO field)")
     feature = _get_feature(field_key)
     if feature.feature_type in _SELECT_TYPES:
         return {"channel": channel, "language": None, "feature_idx": field_key}

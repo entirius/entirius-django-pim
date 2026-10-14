@@ -11,6 +11,10 @@
   (`{"options"}`) values; option idxs are validated against the feature (unknown → `ValueError`, nothing
   written), snapshots are sorted for drift checks, and writes on an inheriting secondary channel are marked
   overridden (`"*"`).
+- Enrichment adapter: SEO text fields (`is_seo`, `meta_title`, `meta_description`) are catalogued as plain `text`
+  capped at 255; `url_key`, `canonical_url` and `og_image` are not writable (absent from the catalog,
+  `make_locator` raises); `apply` refuses to clear an inherited select on a secondary channel (the change would
+  be silently refilled by materialisation).
 
 ## 3.4.0 — 2026-10-12
 
