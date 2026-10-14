@@ -1470,6 +1470,17 @@ class TestChannelLanguagesAndLocator:
 
         assert locator == {"channel": "c1", "language": None, "feature_idx": "enr_color"}
 
+    def test_field_key_inverts_make_locator(self):
+        FeatureFactory(idx="enr_desc", feature_type=FeatureTypeEnum.TEXT_T9N)
+
+        locator = enrichment_adapter.make_locator(field_key="enr_desc", channel="c1", language="de")
+
+        assert enrichment_adapter.field_key(locator=locator) == "enr_desc"
+
+    @pytest.mark.parametrize("locator", [{"channel": "x", "language": "pl"}, {"channel": "x"}])
+    def test_field_key_is_none_for_picture_alt_and_video_locators(self, locator):
+        assert enrichment_adapter.field_key(locator=locator) is None
+
     def test_text_locator_without_language_raises(self):
         FeatureFactory(idx="enr_desc", feature_type=FeatureTypeEnum.TEXT_T9N)
 

@@ -939,13 +939,13 @@ def make_locator(*, field_key: str, channel: str, language: str | None) -> dict:
     return {"channel": channel, "language": language.lower(), "feature_idx": field_key}
 
 
-def field_key(*, locator: dict) -> str:
+def field_key(*, locator: dict) -> str | None:
     """Inverse of `make_locator`: the catalog key an `attribute_value` locator points at.
 
-    Without it the bus falls back to `locator["field"]`, which PIM locators never carry — a correction
-    would then run without the field's catalog entry (max length, options).
+    None for locators without a catalog field (`picture_alt`, `video`) — the bus then revises without
+    catalog meta. Without this extra the bus falls back to `locator["field"]`, which PIM locators never carry.
     """
-    return locator["feature_idx"]
+    return locator.get("feature_idx")
 
 
 def resolve_targets(scope_spec: dict, page: int = 1) -> list:
