@@ -84,8 +84,9 @@ Two non-obvious rules this adapter owns (the bus stays dumb about them):
    others, so `apply`/`revert` always merge the proposed language into the full `value_txt_t9n` dict.
 2. **Inheritance override.** A write on a *secondary* (non-default) channel whose product inherits the
    relevant feature would be clobbered by the next materialisation. So after writing, the language is
-   marked in `overridden_langs` — but ONLY when inheritance is actually enabled for that flag on a
-   non-default channel (decision PO: don't write override metadata where it's meaningless).
+   marked in `overridden_langs` — but ONLY when inheritance is actually enabled (channel switch + flag,
+   feature not excluded) on a non-default channel (decision PO: don't write override metadata where
+   it's meaningless).
 """
 
 import io
@@ -101,6 +102,8 @@ from ..models import (
     Attribute,
     Channel,
     Feature,
+    FeatureInFeatureSet,
+    FeatureScopeEnum,
     FeatureSet,
     FeatureTypeEnum,
     FileRoleEnum,
@@ -464,8 +467,12 @@ def _write_text(channel_idx: str, *, subject_ref: str, feature: Feature, languag
             f"enrichment_adapter writes translatable text only (or select options); feature {feature.idx!r} is "
             f"feature_type={feature.feature_type} (expected VARCHAR255_T9N, TEXT_T9N, SELECT or MULTISELECT)"
         )
+    if not isinstance(language, str) or not language:
+        raise ValueError(f"translatable feature {feature.idx!r} needs a language in the locator")
+    language = language.lower()
 
     product = product_service.get_product_by_sku(channel_idx, subject_ref)
+    _require_applicable(product, feature, subject_ref)
     existing = ProductAttribute.objects.filter(product=product, feature=feature).first()
     merged = dict(existing.value_txt_t9n or {}) if existing is not None else {}
     merged[language] = text
@@ -515,12 +522,24 @@ def _write_select(channel_idx: str, *, subject_ref: str, feature: Feature, value
     if unknown := [idx for idx in idxs if idx not in known]:
         raise ValueError(f"unknown option(s) {unknown} for feature {feature.idx!r}")
     product = product_service.get_product_by_sku(channel_idx, subject_ref)
+    _require_applicable(product, feature, subject_ref)
     if feature.feature_type == FeatureTypeEnum.MULTISELECT:
         payload = {"feature_idx": feature.idx, "attribute_idxs": idxs}
     else:
         payload = {"feature_idx": feature.idx, "attribute_idx": idxs[0] if idxs else None}
     product_service.update_product(channel_idx, subject_ref, attributes=[payload])
     _mark_overridden_if_inheriting(product, feature, None)
+
+
+def _require_applicable(product, feature: Feature, subject_ref: str) -> None:
+    """Refuse writes to a feature the product's FeatureSet does not contain (PIM: "not applicable").
+
+    System features are implicit (never in FeatureInFeatureSet) and always apply — same rule as gaps.
+    """
+    if feature.scope == FeatureScopeEnum.SYSTEM:
+        return
+    if not FeatureInFeatureSet.objects.filter(feature_set_id=product.feature_set_id, feature=feature).exists():
+        raise ValueError(f"feature {feature.idx!r} is not in the feature set of {subject_ref!r}")
 
 
 def _reject_inherited_select_clear(target_locator: dict, *, subject_ref: str, value: dict) -> None:
@@ -535,8 +554,9 @@ def _reject_inherited_select_clear(target_locator: dict, *, subject_ref: str, va
 
 
 def _inherits(product, feature: Feature) -> bool:
-    """True when a write to `feature` on this product would be clobbered by materialisation."""
-    if product.shop.is_default:
+    """True when a write to `feature` on this product would be clobbered by materialisation
+    (same conditions as `inheritance_service`)."""
+    if product.shop.is_default or not product.shop.inheritance_enabled or feature.exclude_from_inheritance:
         return False
     if feature.idx in DESCRIPTION_FEATURE_IDXS:
         return product.inherit_descriptions

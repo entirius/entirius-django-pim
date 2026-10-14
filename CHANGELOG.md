@@ -15,6 +15,10 @@
   capped at 255; `url_key`, `canonical_url` and `og_image` are not writable (absent from the catalog,
   `make_locator` raises); `apply` refuses to clear an inherited select on a secondary channel (the change would
   be silently refilled by materialisation).
+- Enrichment adapter: `attribute_value` writes are refused (`ValueError`, nothing written) for a feature outside
+  the product's feature set (system features always apply) and for a translatable feature whose locator has no
+  language (the language is lowercased); the inherited-select guard and the `overridden_langs` marker follow the
+  materialisation rules (channel `inheritance_enabled`, feature `exclude_from_inheritance`).
 
 ## 3.4.0 — 2026-10-12
 

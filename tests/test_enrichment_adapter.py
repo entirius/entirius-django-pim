@@ -67,6 +67,7 @@ def _make_product(*, channel, sku, feature_idx="enr_desc", t9n=None, feature_typ
     feature = FeatureFactory(idx=feature_idx, feature_type=feature_type)
     real_product = RealProductFactory(sku=sku)
     product = ProductFactory(shop=channel, real_product=real_product, feature_set=FeatureSetFactory())
+    FeatureInFeatureSetFactory(feature_set=product.feature_set, feature=feature)
     if t9n is not None:
         ProductAttribute.objects.create(product=product, feature=feature, value_txt_t9n=t9n)
     return product, feature
@@ -182,6 +183,28 @@ class TestApply:
 
         attr = ProductAttribute.objects.get(product=product, feature=feature)
         assert attr.overridden_langs == ["pl"]
+
+    def test_apply_rejects_text_feature_outside_feature_set(self):
+        channel = ChannelFactory(is_default=True)
+        product = _make_bare_product(channel=channel, sku="SKU-FS")
+        feature = FeatureFactory(idx="enr_desc", feature_type=FeatureTypeEnum.TEXT_T9N)
+        proposal = _Proposal(subject_ref="SKU-FS", target_locator=_locator(channel), proposed_value={"text": "x"})
+
+        with pytest.raises(ValueError, match="is not in the feature set"):
+            enrichment_adapter.apply(proposal)
+
+        assert not ProductAttribute.objects.filter(product=product, feature=feature).exists()
+
+    def test_apply_rejects_text_feature_without_language(self):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _make_product(channel=channel, sku="SKU-NL", t9n={"pl": "stary"})
+        locator = {"channel": channel.idx, "language": None, "feature_idx": "enr_desc"}
+        proposal = _Proposal(subject_ref="SKU-NL", target_locator=locator, proposed_value={"text": "nowy"})
+
+        with pytest.raises(ValueError, match="needs a language in the locator"):
+            enrichment_adapter.apply(proposal)
+
+        assert ProductAttribute.objects.get(product=product, feature=feature).value_txt_t9n == {"pl": "stary"}
 
     def test_apply_rejects_non_t9n_feature(self):
         channel = ChannelFactory(is_default=True)
@@ -1610,6 +1633,52 @@ class TestSelectValues:
         )
 
         enrichment_adapter.revert(proposal)
+
+        assert _chosen(product, feature) == []
+
+    def _secondary_without_effective_inheritance(self, case, *, multi=False):
+        channel = ChannelFactory(is_default=False, inheritance_enabled=case != "channel_off")
+        channel, product, feature = self._setup(multi=multi, channel=channel)
+        product.inherit_attributes = True
+        product.save(update_fields=["inherit_attributes"])
+        feature.exclude_from_inheritance = case == "excluded"
+        feature.save(update_fields=["exclude_from_inheritance"])
+        return channel, product, feature
+
+    @pytest.mark.parametrize("case", ["channel_off", "excluded"])
+    def test_apply_may_clear_select_when_inheritance_does_not_apply(self, case):
+        channel, product, feature = self._secondary_without_effective_inheritance(case)
+        _choose(product, feature, "red")
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value={"option": ""}
+        )
+
+        enrichment_adapter.apply(proposal)
+
+        assert _chosen(product, feature) == []
+
+    @pytest.mark.parametrize("case", ["channel_off", "excluded"])
+    def test_apply_writes_no_marker_when_inheritance_does_not_apply(self, case):
+        channel, product, feature = self._secondary_without_effective_inheritance(case, multi=True)
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value={"options": ["red", "blue"]}
+        )
+
+        enrichment_adapter.apply(proposal)
+
+        rows = ProductAttribute.objects.filter(product=product, feature=feature)
+        assert [row.overridden_langs or [] for row in rows] == [[], []]
+
+    def test_apply_rejects_feature_outside_feature_set(self):
+        channel = ChannelFactory(is_default=True)
+        product = _make_bare_product(channel=channel, sku="SEL-1")
+        feature = _select_feature()
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value={"option": "red"}
+        )
+
+        with pytest.raises(ValueError, match="is not in the feature set of 'SEL-1'"):
+            enrichment_adapter.apply(proposal)
 
         assert _chosen(product, feature) == []
 
