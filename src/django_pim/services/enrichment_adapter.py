@@ -42,7 +42,7 @@ gone after apply, so the snapshot diff is the only record of what this proposal 
 
 Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
 `main_picture` (bytes + mime of the main picture, input for the video kind) and the field catalog
-`describe_fields` / `channel_languages` / `make_locator` (writable text and select features).
+`describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features).
 
 Classification (`target_kind == "feature_set"`, etap-02): the FIRST classification gap — the AI
 resolves it by picking an existing PIM entity (a `FeatureSet` idx from `GET feature-sets/`), not by
@@ -937,6 +937,15 @@ def make_locator(*, field_key: str, channel: str, language: str | None) -> dict:
     if not language:
         raise ValueError(f"translatable field {field_key!r} needs a language")
     return {"channel": channel, "language": language.lower(), "feature_idx": field_key}
+
+
+def field_key(*, locator: dict) -> str:
+    """Inverse of `make_locator`: the catalog key an `attribute_value` locator points at.
+
+    Without it the bus falls back to `locator["field"]`, which PIM locators never carry — a correction
+    would then run without the field's catalog entry (max length, options).
+    """
+    return locator["feature_idx"]
 
 
 def resolve_targets(scope_spec: dict, page: int = 1) -> list:
