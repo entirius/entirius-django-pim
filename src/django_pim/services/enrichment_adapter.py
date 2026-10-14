@@ -22,11 +22,14 @@ PIM locator / value convention (the bus treats both as opaque — only this modu
                     | `{"channel": <channel_idx>}`                                            (feature_set)
                     | `{"channel": <channel_idx>, "language": <iso2>}`                        (picture_alt)
                     | `{"channel": <channel_idx>}`                                            (video)
+                    | `{"channel": <channel_idx>, "language": None, "feature_idx": <idx>}`  (select / multiselect)
 - `proposed_value`  = `{"text": <new value for that single language>}`                        (text)
+                    | `{"option": <Attribute.idx>}` / `{"options": [<Attribute.idx>, ...]}`   (select / multiselect)
                     | `{"op": "replace_main", "alt_t9n": {<iso2>: <alt>}}`                    (picture)
                     | `{"featureset_idx": <idx of an existing FeatureSet>}`                   (feature_set)
                     | `{"alts": {"<picture_pk>": <alt for that single language>}}`            (picture_alt)
 - `current_snapshot`= `{"text": <raw stored value for that language, "" if absent>}`          (text)
+                    | `{"option": <idx, "" if none>}` / `{"options": [<sorted idxs>]}`        (select / multiselect)
                     | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none (picture)
                     | `{"featureset_idx": <current idx, "" if product missing>}`              (feature_set)
                     | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures (picture_alt)
@@ -37,8 +40,9 @@ via `product_file_service.upload_file` (type VIDEO, label = product name) and li
 unlinks the files present in `applied_snapshot` but not in `current_snapshot` — the staged copy is
 gone after apply, so the snapshot diff is the only record of what this proposal linked.
 
-Optional callables for the AI workers: `build_context` (compact product facts for a prompt) and
-`main_picture` (bytes + mime of the main picture, input for the video kind).
+Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
+`main_picture` (bytes + mime of the main picture, input for the video kind) and the field catalog
+`describe_fields` / `channel_languages` / `make_locator` (writable text and select features).
 
 Classification (`target_kind == "feature_set"`, etap-02): the FIRST classification gap — the AI
 resolves it by picking an existing PIM entity (a `FeatureSet` idx from `GET feature-sets/`), not by
@@ -88,11 +92,14 @@ import io
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q, Window
+from django.db.models.functions import RowNumber
 from django.utils.html import strip_tags
 from PIL import Image
 
 from ..models import (
+    Attribute,
+    Channel,
     Feature,
     FeatureSet,
     FeatureTypeEnum,
@@ -113,10 +120,21 @@ from . import product_file_service, product_picture_service, product_service
 # materialise the whole catalogue.
 _PAGE_SIZE = 100
 
-# Only translatable text features are writable through the referential adapter. Media and
-# scalar/select features get their own adapters/etaps — fail loud rather than silently no-op
-# (a t9n payload sent to a non-t9n feature would be dropped by `_set_product_attributes`).
+# `attribute_value` writes translatable text and select/multiselect options only. Scalar features
+# fail loud rather than silently no-op (a t9n payload sent to a non-t9n feature would be dropped by
+# `_set_product_attributes`).
 _T9N_TEXT_TYPES = frozenset({FeatureTypeEnum.VARCHAR255_T9N, FeatureTypeEnum.TEXT_T9N})
+_SELECT_TYPES = frozenset({FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT})
+
+# Field catalog shape per writable feature type: (type, max_length, translatable). TEXT_T9N is
+# edited as HTML in the CMS (wysiwyg), VARCHAR255_T9N as plain text capped by its column.
+_FIELD_SHAPES = {
+    FeatureTypeEnum.VARCHAR255_T9N: ("text", 255, True),
+    FeatureTypeEnum.TEXT_T9N: ("html", None, True),
+    FeatureTypeEnum.SELECT: ("select", None, False),
+    FeatureTypeEnum.MULTISELECT: ("multiselect", None, False),
+}
+_MAX_OPTIONS = 200
 
 # list_products kwargs an external scope may drive. Anything else in `filters` is ignored rather
 # than passed through (avoids a worker injecting arbitrary kwargs).
@@ -150,6 +168,9 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
     if target_kind != "attribute_value":
         return {"text": ""}
     channel_idx, language, feature_idx = _locator(target_locator)
+    feature = Feature.objects.filter(idx=feature_idx).first()
+    if feature is not None and feature.feature_type in _SELECT_TYPES:
+        return _read_current_select(subject_ref, channel_idx, feature)
     try:
         product = product_service.get_product_by_sku(channel_idx, subject_ref)
     except ObjectDoesNotExist:
@@ -162,7 +183,7 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
 
 
 def apply(proposal) -> None:
-    """Write `proposed_value["text"]` into the target feature for one language (text only).
+    """Write `proposed_value` into the target (text for one language, or select/multiselect options).
 
     The ONLY place enrichment writes back to PIM. Drift is already checked by the bus
     (`apply_service.apply`) before we get here. Read-merge-write + inheritance override (see module
@@ -209,14 +230,7 @@ def apply(proposal) -> None:
             alts=alts,
         )
         return
-    channel_idx, language, feature_idx = _locator(proposal.target_locator)
-    _write_text(
-        channel_idx,
-        subject_ref=proposal.subject_ref,
-        feature_idx=feature_idx,
-        language=language,
-        text=proposal.proposed_value.get("text"),
-    )
+    _write_attribute(proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value)
 
 
 def revert(proposal) -> None:
@@ -254,14 +268,9 @@ def revert(proposal) -> None:
             alts=alts,
         )
         return
-    channel_idx, language, feature_idx = _locator(proposal.target_locator)
-    _write_text(
-        channel_idx,
-        subject_ref=proposal.subject_ref,
-        feature_idx=feature_idx,
-        language=language,
-        text=proposal.current_snapshot.get("text", ""),
-    )
+    # An empty text snapshot restores "" (as before); select snapshots always carry their key.
+    snapshot = {"text": "", **(proposal.current_snapshot or {})}
+    _write_attribute(proposal.target_locator, subject_ref=proposal.subject_ref, value=snapshot)
 
 
 def _read_current_picture(subject_ref: str, target_locator: dict) -> dict:
@@ -407,8 +416,25 @@ def _gc_orphan_picture(sha1: str) -> int:
     return 1
 
 
-def _write_text(channel_idx: str, *, subject_ref: str, feature_idx: str, language: str, text) -> None:
-    """Shared read-merge-write + override used by both apply and revert.
+def _get_feature(feature_idx: str) -> Feature:
+    try:
+        return Feature.objects.get(idx=feature_idx)
+    except Feature.DoesNotExist as exc:
+        raise ValueError(f"unknown feature_idx {feature_idx!r}") from exc
+
+
+def _write_attribute(target_locator: dict, *, subject_ref: str, value: dict) -> None:
+    """Shared `attribute_value` write (apply + revert): select options or one language of text."""
+    channel_idx, language, feature_idx = _locator(target_locator)
+    feature = _get_feature(feature_idx)
+    if feature.feature_type in _SELECT_TYPES:
+        _write_select(channel_idx, subject_ref=subject_ref, feature=feature, value=value)
+        return
+    _write_text(channel_idx, subject_ref=subject_ref, feature=feature, language=language, text=value.get("text"))
+
+
+def _write_text(channel_idx: str, *, subject_ref: str, feature: Feature, language: str, text) -> None:
+    """Read-merge-write of one language + override.
 
     `text` must be a plain string — `value_txt_t9n` is a `{lang: str}` map and every reader (get_value,
     Matrix sync, storefront) indexes it as a scalar. Writing a dict/list/None would corrupt the field
@@ -416,17 +442,12 @@ def _write_text(channel_idx: str, *, subject_ref: str, feature_idx: str, languag
     """
     if not isinstance(text, str):
         raise ValueError(
-            f"enrichment_adapter expects a string value for {feature_idx!r}/{language!r}, got {type(text).__name__}"
+            f"enrichment_adapter expects a string value for {feature.idx!r}/{language!r}, got {type(text).__name__}"
         )
-
-    try:
-        feature = Feature.objects.get(idx=feature_idx)
-    except Feature.DoesNotExist as exc:
-        raise ValueError(f"unknown feature_idx {feature_idx!r}") from exc
     if feature.feature_type not in _T9N_TEXT_TYPES:
         raise ValueError(
-            f"enrichment_adapter writes translatable text only; feature {feature_idx!r} is "
-            f"feature_type={feature.feature_type} (expected VARCHAR255_T9N or TEXT_T9N)"
+            f"enrichment_adapter writes translatable text only (or select options); feature {feature.idx!r} is "
+            f"feature_type={feature.feature_type} (expected VARCHAR255_T9N, TEXT_T9N, SELECT or MULTISELECT)"
         )
 
     product = product_service.get_product_by_sku(channel_idx, subject_ref)
@@ -435,34 +456,80 @@ def _write_text(channel_idx: str, *, subject_ref: str, feature_idx: str, languag
     merged[language] = text
 
     product_service.update_product(
-        channel_idx, subject_ref, attributes=[{"feature_idx": feature_idx, "value_txt_t9n": merged}]
+        channel_idx, subject_ref, attributes=[{"feature_idx": feature.idx, "value_txt_t9n": merged}]
     )
 
     _mark_overridden_if_inheriting(product, feature, language)
 
 
-def _mark_overridden_if_inheriting(product, feature: Feature, language: str) -> None:
-    """Mark the language overridden so materialisation won't clobber it — only where it matters.
+def _read_current_select(subject_ref: str, channel_idx: str, feature: Feature) -> dict:
+    """Selected option idxs (sorted, so drift ignores row order); missing product → empty value."""
+    try:
+        product = product_service.get_product_by_sku(channel_idx, subject_ref)
+    except ObjectDoesNotExist:
+        return _select_value(feature, [])
+    idxs = ProductAttribute.objects.filter(product=product, feature=feature, attribute__isnull=False).values_list(
+        "attribute__idx", flat=True
+    )
+    return _select_value(feature, sorted(idxs))
 
-    No-op on the default channel (it's the inheritance source) or when the product does not inherit
-    the relevant flag (description vs attribute). The attribute was deleted+recreated by the write, so
-    we re-fetch it and set `overridden_langs` directly rather than going through
-    `toggle_language_override` (which raises unless inheritance is enabled and the attribute exists).
+
+def _select_value(feature: Feature, idxs: list[str]) -> dict:
+    if feature.feature_type == FeatureTypeEnum.MULTISELECT:
+        return {"options": idxs}
+    return {"option": idxs[0] if idxs else ""}
+
+
+def _requested_options(feature: Feature, value: dict) -> list[str]:
+    """Option idxs from `{"option": str}` (single, "" clears) or `{"options": [str]}` (multi, [] clears)."""
+    if feature.feature_type == FeatureTypeEnum.MULTISELECT:
+        options = value.get("options")
+        if not isinstance(options, list) or not all(isinstance(o, str) and o for o in options):
+            raise ValueError(f"multiselect {feature.idx!r} expects 'options' as a list of option idxs, got {options!r}")
+        return list(dict.fromkeys(options))
+    option = value.get("option")
+    if not isinstance(option, str):
+        raise ValueError(f"select {feature.idx!r} expects 'option' as an option idx string, got {option!r}")
+    return [option] if option else []
+
+
+def _write_select(channel_idx: str, *, subject_ref: str, feature: Feature, value: dict) -> None:
+    """Replace the feature's options (validated against the feature — unknown idx fails loud)."""
+    idxs = _requested_options(feature, value)
+    known = set(Attribute.objects.filter(feature=feature, idx__in=idxs).values_list("idx", flat=True))
+    if unknown := [idx for idx in idxs if idx not in known]:
+        raise ValueError(f"unknown option(s) {unknown} for feature {feature.idx!r}")
+    product = product_service.get_product_by_sku(channel_idx, subject_ref)
+    if feature.feature_type == FeatureTypeEnum.MULTISELECT:
+        payload = {"feature_idx": feature.idx, "attribute_idxs": idxs}
+    else:
+        payload = {"feature_idx": feature.idx, "attribute_idx": idxs[0] if idxs else None}
+    product_service.update_product(channel_idx, subject_ref, attributes=[payload])
+    _mark_overridden_if_inheriting(product, feature, None)
+
+
+def _mark_overridden_if_inheriting(product, feature: Feature, language: str | None) -> None:
+    """Mark the write overridden so materialisation won't clobber it — only where it matters.
+
+    The marker is the language for text and `"*"` for language-neutral (select) values, matching
+    `inheritance_service`. No-op on the default channel (it's the inheritance source) or when the
+    product does not inherit the relevant flag (description vs attribute). The rows were
+    deleted+recreated by the write, so we re-fetch them and set `overridden_langs` directly rather than
+    going through `toggle_language_override` (which raises unless inheritance is enabled and the
+    attribute exists).
     """
     if product.shop.is_default:
         return
     inherits = product.inherit_descriptions if feature.idx in DESCRIPTION_FEATURE_IDXS else product.inherit_attributes
     if not inherits:
         return
-    attr = ProductAttribute.objects.filter(product=product, feature=feature).first()
-    if attr is None:
-        return
-    overridden = set(attr.overridden_langs or [])
-    if language in overridden:
-        return
-    overridden.add(language)
-    attr.overridden_langs = sorted(overridden)
-    attr.save(update_fields=["overridden_langs"])
+    marker = language or "*"
+    for attr in ProductAttribute.objects.filter(product=product, feature=feature):
+        overridden = set(attr.overridden_langs or [])
+        if marker in overridden:
+            continue
+        attr.overridden_langs = sorted(overridden | {marker})
+        attr.save(update_fields=["overridden_langs"])
 
 
 def _read_current_feature_set(subject_ref: str, target_locator: dict) -> dict:
@@ -726,6 +793,86 @@ def _plain(text: str) -> str:
 
 def _cap(text: str, limit: int) -> str:
     return text if len(text) <= limit else f"{text[: limit - 1].rstrip()}…"
+
+
+def describe_fields(*, channel: str, language: str = "") -> list[dict]:
+    """Writable fields of the catalogue: T9N text (`text`/`html`) and select/multiselect features.
+
+    PIM features are global, so every channel sees the same set. Labels are in `language`, falling
+    back to the channel's main language, then the idx. Select fields carry at most 200 options plus
+    `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
+    """
+    langs = _label_languages(channel, language)
+    features = list(Feature.objects.filter(feature_type__in=_FIELD_SHAPES).order_by("display_order", "idx"))
+    options = _feature_options([f.pk for f in features if f.feature_type in _SELECT_TYPES])
+    return [_describe_field(feature, langs, options.get(feature.pk, [])) for feature in features]
+
+
+def _label_languages(channel_idx: str, language: str) -> tuple[str, str]:
+    main = _get_channel(channel_idx).default_language.iso2.lower()
+    return (language or main).lower(), main
+
+
+def _get_channel(channel_idx: str) -> Channel:
+    return Channel.objects.select_related("default_language").get(idx=channel_idx)
+
+
+def _feature_options(feature_ids: list[int]) -> dict[int, list[tuple[str, dict]]]:
+    """`{feature_id: [(idx, name_t9n), ...]}` — at most `_MAX_OPTIONS + 1` per feature (one query)."""
+    if not feature_ids:
+        return {}
+    rank = Window(RowNumber(), partition_by=F("feature_id"), order_by=(F("display_order").asc(), F("idx").asc()))
+    rows = (
+        Attribute.objects.filter(feature_id__in=feature_ids)
+        .annotate(rank=rank)
+        .filter(rank__lte=_MAX_OPTIONS + 1)
+        .order_by("feature_id", "rank")
+        .values_list("feature_id", "idx", "name_t9n")
+    )
+    options: dict[int, list[tuple[str, dict]]] = {}
+    for feature_id, idx, name_t9n in rows:
+        options.setdefault(feature_id, []).append((idx, name_t9n))
+    return options
+
+
+def _describe_field(feature: Feature, langs: tuple[str, str], options: list[tuple[str, dict]]) -> dict:
+    field_type, max_length, translatable = _FIELD_SHAPES[feature.feature_type]
+    field = {
+        "key": feature.idx,
+        "label": _first_language(feature.name_t9n, langs) or feature.idx,
+        "type": field_type,
+        "max_length": max_length,
+        "translatable": translatable,
+    }
+    if feature.feature_type in _SELECT_TYPES:
+        field["options"] = [
+            {"value": idx, "label": _first_language(name_t9n, langs) or idx} for idx, name_t9n in options[:_MAX_OPTIONS]
+        ]
+        field["options_truncated"] = len(options) > _MAX_OPTIONS
+    return field
+
+
+def channel_languages(*, channel: str) -> list[str]:
+    """The channel's languages as lowercase iso2, main language first, the rest sorted."""
+    record = _get_channel(channel)
+    main = record.default_language.iso2.lower()
+    others = {iso2.lower() for iso2 in record.languages.values_list("iso2", flat=True)} - {main}
+    return [main, *sorted(others)]
+
+
+def make_locator(*, field_key: str, channel: str, language: str | None) -> dict:
+    """`attribute_value` locator for a catalogue field; language is None for select features.
+
+    Raises `ValueError` for an unknown or non-writable field, or a text field without a language.
+    """
+    feature = _get_feature(field_key)
+    if feature.feature_type in _SELECT_TYPES:
+        return {"channel": channel, "language": None, "feature_idx": field_key}
+    if feature.feature_type not in _T9N_TEXT_TYPES:
+        raise ValueError(f"feature {field_key!r} is not a writable field (feature_type={feature.feature_type})")
+    if not language:
+        raise ValueError(f"translatable field {field_key!r} needs a language")
+    return {"channel": channel, "language": language.lower(), "feature_idx": field_key}
 
 
 def resolve_targets(scope_spec: dict, page: int = 1) -> list:

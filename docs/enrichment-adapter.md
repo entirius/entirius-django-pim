@@ -28,6 +28,9 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `revert(proposal)` | WRITE | Restore `current_snapshot` (single-level undo) |
 | `build_context(*, subject_ref, channel, language)` | READ, optional | Compact prompt context — see below |
 | `main_picture(*, subject_ref, channel)` | READ, optional | `(bytes, mime)` of the main picture; `ValueError` if none |
+| `describe_fields(*, channel, language="")` | READ, optional | Field catalog — see below |
+| `channel_languages(*, channel)` | READ, optional | Lowercase iso2 languages of the channel, main first |
+| `make_locator(*, field_key, channel, language)` | READ, optional | `attribute_value` locator for a catalog field |
 
 ## Locator / value convention
 
@@ -40,6 +43,7 @@ The bus treats these as opaque — only this adapter reads them.
 | target_kind | `target_locator` | `proposed_value` | `current_snapshot` |
 |-------------|------------------|------------------|--------------------|
 | `attribute_value` | `{"channel", "language", "feature_idx"}` | `{"text": <value for that language>}` | `{"text": <raw stored value, "" if absent>}` |
+| `attribute_value` (select) | `{"channel", "language": null, "feature_idx"}` | `{"option": <idx>}` / `{"options": [<idx>, ...]}` | `{"option": <idx, "" if none>}` / `{"options": [<sorted idxs>]}` |
 | `picture` | `{"channel"}` | `{"op": "replace_main", "alt_t9n": {...}}` | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none |
 | `feature_set` | `{"channel"}` | `{"featureset_idx": <idx of an existing FeatureSet>}` | `{"featureset_idx": <current idx, "" if product missing>}` |
 | `picture_alt` | `{"channel", "language"}` | `{"alts": {"<picture_pk>": <alt for that language>}}` | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures, `{"alts": {}}` if product missing |
@@ -123,11 +127,40 @@ one link, so a silent no-op would mark the proposal reverted while the video sta
 raises too when SHA1 dedup returns an existing non-VIDEO row (it would never show up in the
 snapshots, so revert could not unlink it).
 
+## Field catalog (`describe_fields`)
+
+The AI studio builds its field pickers, prompts and response schemas from this catalog:
+
+```jsonc
+{"key": "<feature idx>", "label": "<name in language>", "type": "text|html|select|multiselect",
+ "max_length": 255 | null, "translatable": true | false,
+ "options": [{"value": "<attribute idx>", "label": "<name>"}], "options_truncated": false}  // selects only
+```
+
+- Fields = every feature of type VARCHAR255_T9N (`text`, `max_length` 255), TEXT_T9N (`html` — the CMS edits it
+  with the wysiwyg editor) and SELECT / MULTISELECT. PIM features are global, so all channels see the same list;
+  the channel only picks the label language. Scalar, JSON and datetime features are not writable here.
+- Labels in `language`, then the channel's main language, then the idx. `language=""` = main language.
+- Options ordered by `display_order`, `idx`; at most 200 per field (a window function caps them in SQL) with
+  `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
+- `make_locator` returns `{channel, language, feature_idx}` — `language` lowercased for text, `None` for selects;
+  unknown or non-writable field, or a text field without a language → `ValueError`.
+
+## Select writes (`attribute_value` on SELECT / MULTISELECT)
+
+`read_current` returns the chosen option idxs (multiselect sorted, so drift ignores row order).
+`apply` / `revert` validate the value shape (`{"option": str}` for SELECT, `{"options": [str]}` for MULTISELECT)
+and every idx against the feature's options — an unknown idx or one of another feature raises `ValueError` before
+anything is written. `""` / `[]` clears the feature (that is how revert restores "no value"). The write goes
+through `product_service.update_product` (`attribute_idx` / `attribute_idxs`); on an inheriting secondary channel
+every row is marked `overridden_langs=["*"]`, the marker `inheritance_service` uses for language-neutral values.
+A cleared select on an inheriting channel leaves no row to mark, so the next materialisation may refill it.
+
 ## Prompt context (`build_context`)
 
 `{sku, name, brand, category, attributes: {feature_idx: text}, description, short_description}`.
 Values come in `language` and fall back to the channel's main language. Select attributes resolve
-to the attribute name; JSON and datetime features are skipped. Text is stripped of markup and HTML
+to the option name (multiselect names joined with `, `); JSON and datetime features are skipped. Text is stripped of markup and HTML
 comments (no hidden prompt injection, no tags cut mid-way) before capping. Caps keep the payload
 around 4 KB: description 1200 chars, short description 300, other values (category included) 100,
 at most 20 attributes. It runs
@@ -169,15 +202,17 @@ that contract lives bus-side (`django-enrichment` `docs/spawn-surfaces.md` § Ga
 
 ## Scope limits
 
-- Text only: `apply`/`revert` raise `ValueError` for non-`*_T9N` features (a t9n payload sent to a
-  scalar feature would otherwise be silently dropped by `_set_product_attributes`).
+- `attribute_value` writes `*_T9N` text and select/multiselect options only: `apply`/`revert` raise `ValueError`
+  for other features (a t9n payload sent to a scalar feature would otherwise be silently dropped by
+  `_set_product_attributes`).
 - Mass async apply is not part of this adapter.
 
 ## Tests
 
 `tests/test_enrichment_adapter.py` — read-merge-write (sibling languages preserved), override on an
 inheriting secondary channel vs none on the default channel, `revert`, `resolve_targets`
-filter/list, non-t9n rejection. Run inside Docker:
+filter/list, non-t9n rejection, field catalog (shapes, label fallback, option cap, query count), select and
+multiselect read/apply/revert and option validation. Run inside Docker:
 
 ```bash
 PIM_TEST_DB_HOST=db python -m pytest tests/test_enrichment_adapter.py -q

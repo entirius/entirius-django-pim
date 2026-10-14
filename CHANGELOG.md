@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Enrichment adapter: field catalog for the AI studio — `describe_fields(channel, language)` lists the writable
+  T9N text (`text` / `html`, `max_length` 255 for VARCHAR255_T9N) and select/multiselect features with labels in
+  the language (fallback: channel main language) and at most 200 options (`options_truncated`), in three queries;
+  `channel_languages(channel)` (main language first) and `make_locator(field_key, channel, language)` (language
+  `None` for selects).
+- Enrichment adapter: `attribute_value` reads, applies and reverts select (`{"option"}`) and multiselect
+  (`{"options"}`) values; option idxs are validated against the feature (unknown → `ValueError`, nothing
+  written), snapshots are sorted for drift checks, and writes on an inheriting secondary channel are marked
+  overridden (`"*"`).
+
 ## 3.4.0 — 2026-10-12
 
 - Access: the module declares its own access areas on its AppConfig and its admin views (copied from the

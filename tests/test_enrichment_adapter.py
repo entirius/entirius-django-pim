@@ -42,6 +42,7 @@ from .factories import (
     AttributeFactory,
     ChannelFactory,
     FeatureFactory,
+    FeatureInFeatureSetFactory,
     FeatureSetFactory,
     GapDefinitionFactory,
     GapExemptionFactory,
@@ -1283,3 +1284,278 @@ class TestVideo:
             self._apply(channel, "VID-4")
 
         assert not ProductFile.objects.filter(product=product).exists()
+
+
+def _select_feature(idx="enr_color", *, multi=False, options=("red", "blue")):
+    feature_type = FeatureTypeEnum.MULTISELECT if multi else FeatureTypeEnum.SELECT
+    feature = FeatureFactory(idx=idx, feature_type=feature_type, name_t9n={"en": idx.title(), "de": f"{idx}-de"})
+    for n, option in enumerate(options):
+        AttributeFactory(feature=feature, idx=option, name_t9n={"en": option.title()}, display_order=n)
+    return feature
+
+
+def _select_locator(channel, feature_idx="enr_color"):
+    return enrichment_adapter.make_locator(field_key=feature_idx, channel=channel.idx, language=None)
+
+
+def _choose(product, feature, *idxs):
+    for idx in idxs:
+        ProductAttribute.objects.create(
+            product=product, feature=feature, attribute=models.Attribute.objects.get(feature=feature, idx=idx)
+        )
+
+
+def _chosen(product, feature):
+    return sorted(
+        ProductAttribute.objects.filter(product=product, feature=feature).values_list("attribute__idx", flat=True)
+    )
+
+
+@pytest.mark.django_db
+class TestDescribeFields:
+    def _catalog(self):
+        channel = _en_channel()
+        FeatureFactory(
+            idx="name",
+            feature_type=FeatureTypeEnum.VARCHAR255_T9N,
+            scope=models.FeatureScopeEnum.SYSTEM,
+            name_t9n={"en": "Name", "de": "Name-de"},
+        )
+        FeatureFactory(idx="description", feature_type=FeatureTypeEnum.TEXT_T9N, scope=models.FeatureScopeEnum.SYSTEM)
+        FeatureFactory(idx="enr_weight", feature_type=FeatureTypeEnum.DECIMAL)
+        _select_feature("enr_color")
+        _select_feature("enr_tags", multi=True, options=("eco",))
+        return channel
+
+    def test_writable_fields_with_shapes(self):
+        channel = self._catalog()
+
+        fields = {f["key"]: f for f in enrichment_adapter.describe_fields(channel=channel.idx, language="en")}
+
+        assert {"name", "description", "enr_color", "enr_tags"} <= set(fields)
+        assert "enr_weight" not in fields
+        assert fields["name"] == {
+            "key": "name",
+            "label": "Name",
+            "type": "text",
+            "max_length": 255,
+            "translatable": True,
+        }
+        assert fields["description"]["type"] == "html"
+        assert fields["description"]["max_length"] is None
+        assert fields["description"]["label"] == "description"  # no name → idx
+        assert fields["enr_color"] == {
+            "key": "enr_color",
+            "label": "Enr_Color",
+            "type": "select",
+            "max_length": None,
+            "translatable": False,
+            "options": [{"value": "red", "label": "Red"}, {"value": "blue", "label": "Blue"}],
+            "options_truncated": False,
+        }
+        assert fields["enr_tags"]["type"] == "multiselect"
+
+    def test_labels_in_language_with_main_language_fallback(self):
+        channel = self._catalog()
+
+        fields = {f["key"]: f for f in enrichment_adapter.describe_fields(channel=channel.idx, language="de")}
+
+        assert fields["name"]["label"] == "Name-de"
+        assert fields["enr_color"]["options"][0]["label"] == "Red"  # no "de" → main language (en)
+
+    def test_default_language_is_channel_main(self):
+        channel = self._catalog()
+
+        fields = {f["key"]: f for f in enrichment_adapter.describe_fields(channel=channel.idx)}
+
+        assert fields["name"]["label"] == "Name"
+
+    def test_options_are_capped(self):
+        channel = _en_channel()
+        _select_feature("enr_many", options=[f"o{n:03d}" for n in range(205)])
+        _select_feature("enr_few", options=("a",))
+
+        fields = {f["key"]: f for f in enrichment_adapter.describe_fields(channel=channel.idx)}
+
+        assert len(fields["enr_many"]["options"]) == 200
+        assert fields["enr_many"]["options_truncated"] is True
+        assert fields["enr_few"]["options_truncated"] is False
+
+    def test_bounded_query_count(self, django_assert_num_queries):
+        channel = self._catalog()
+        for n in range(10):
+            _select_feature(f"enr_sel{n}", options=("x", "y", "z"))
+
+        with django_assert_num_queries(3):
+            fields = enrichment_adapter.describe_fields(channel=channel.idx, language="en")
+
+        assert sum(f["type"] == "select" for f in fields) == 11
+
+    def test_unknown_channel_raises(self):
+        with pytest.raises(ObjectDoesNotExist):
+            enrichment_adapter.describe_fields(channel="nope")
+
+
+@pytest.mark.django_db
+class TestChannelLanguagesAndLocator:
+    def test_main_language_first(self):
+        channel = _en_channel()
+        channel.languages.add(LanguageFactory(iso2="PL", iso3="POL"), LanguageFactory(iso2="DE", iso3="DEU"))
+
+        assert enrichment_adapter.channel_languages(channel=channel.idx) == ["en", "de", "pl"]
+
+    def test_text_locator_carries_language(self):
+        FeatureFactory(idx="enr_desc", feature_type=FeatureTypeEnum.TEXT_T9N)
+
+        locator = enrichment_adapter.make_locator(field_key="enr_desc", channel="c1", language="DE")
+
+        assert locator == {"channel": "c1", "language": "de", "feature_idx": "enr_desc"}
+
+    def test_select_locator_has_no_language(self):
+        _select_feature()
+
+        locator = enrichment_adapter.make_locator(field_key="enr_color", channel="c1", language="de")
+
+        assert locator == {"channel": "c1", "language": None, "feature_idx": "enr_color"}
+
+    def test_text_locator_without_language_raises(self):
+        FeatureFactory(idx="enr_desc", feature_type=FeatureTypeEnum.TEXT_T9N)
+
+        with pytest.raises(ValueError, match="needs a language"):
+            enrichment_adapter.make_locator(field_key="enr_desc", channel="c1", language=None)
+
+    def test_non_writable_or_unknown_field_raises(self):
+        FeatureFactory(idx="enr_weight", feature_type=FeatureTypeEnum.DECIMAL)
+
+        with pytest.raises(ValueError, match="not a writable field"):
+            enrichment_adapter.make_locator(field_key="enr_weight", channel="c1", language="en")
+        with pytest.raises(ValueError, match="unknown feature_idx"):
+            enrichment_adapter.make_locator(field_key="nope", channel="c1", language="en")
+
+
+@pytest.mark.django_db
+class TestSelectValues:
+    def _setup(self, *, multi=False, channel=None):
+        channel = channel or ChannelFactory(is_default=True)
+        product = _make_bare_product(channel=channel, sku="SEL-1")
+        feature = _select_feature(multi=multi, options=("red", "blue", "green"))
+        FeatureInFeatureSetFactory(feature_set=product.feature_set, feature=feature)
+        return channel, product, feature
+
+    def _read(self, channel):
+        return enrichment_adapter.read_current(
+            subject_ref="SEL-1", target_kind="attribute_value", target_locator=_select_locator(channel)
+        )
+
+    def test_read_current_single_and_empty(self):
+        channel, product, feature = self._setup()
+        assert self._read(channel) == {"option": ""}
+
+        _choose(product, feature, "blue")
+
+        assert self._read(channel) == {"option": "blue"}
+
+    def test_read_current_multi_is_sorted(self):
+        channel, product, feature = self._setup(multi=True)
+        _choose(product, feature, "red", "blue")
+
+        assert self._read(channel) == {"options": ["blue", "red"]}
+
+    def test_read_current_missing_product(self):
+        channel = ChannelFactory(is_default=True)
+        _select_feature(multi=True)
+
+        snap = enrichment_adapter.read_current(
+            subject_ref="NOPE", target_kind="attribute_value", target_locator=_select_locator(channel)
+        )
+
+        assert snap == {"options": []}
+
+    def test_apply_and_revert_single(self):
+        channel, product, feature = self._setup()
+        _choose(product, feature, "red")
+        proposal = _Proposal(
+            subject_ref="SEL-1",
+            target_locator=_select_locator(channel),
+            proposed_value={"option": "green"},
+            current_snapshot=self._read(channel),
+        )
+
+        enrichment_adapter.apply(proposal)
+        assert _chosen(product, feature) == ["green"]
+
+        enrichment_adapter.revert(proposal)
+        assert _chosen(product, feature) == ["red"]
+
+    def test_apply_and_revert_multi_to_empty(self):
+        channel, product, feature = self._setup(multi=True)
+        proposal = _Proposal(
+            subject_ref="SEL-1",
+            target_locator=_select_locator(channel),
+            proposed_value={"options": ["green", "red", "green"]},
+            current_snapshot=self._read(channel),
+        )
+
+        enrichment_adapter.apply(proposal)
+        assert self._read(channel) == {"options": ["green", "red"]}
+
+        enrichment_adapter.revert(proposal)
+        assert _chosen(product, feature) == []
+
+    def test_apply_rejects_unknown_option_without_writing(self):
+        channel, product, feature = self._setup(multi=True)
+        _choose(product, feature, "red")
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value={"options": ["blue", "pink"]}
+        )
+
+        with pytest.raises(ValueError, match="unknown option"):
+            enrichment_adapter.apply(proposal)
+
+        assert _chosen(product, feature) == ["red"]
+
+    def test_apply_rejects_option_of_another_feature(self):
+        channel, _product, _feature = self._setup()
+        _select_feature("enr_size", options=("xl",))
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value={"option": "xl"}
+        )
+
+        with pytest.raises(ValueError, match="unknown option"):
+            enrichment_adapter.apply(proposal)
+
+    @pytest.mark.parametrize(
+        ("multi", "value"),
+        [(False, {"options": ["red"]}), (False, {"option": 3}), (True, {"option": "red"}), (True, {"options": [""]})],
+    )
+    def test_apply_rejects_wrong_value_shape(self, multi, value):
+        channel, _product, _feature = self._setup(multi=multi)
+        proposal = _Proposal(subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value=value)
+
+        with pytest.raises(ValueError, match="expects 'option"):
+            enrichment_adapter.apply(proposal)
+
+    def test_apply_on_inheriting_secondary_channel_marks_all_overridden(self):
+        channel = ChannelFactory(is_default=False, inheritance_enabled=True)
+        channel, product, feature = self._setup(multi=True, channel=channel)
+        product.inherit_attributes = True
+        product.save(update_fields=["inherit_attributes"])
+        proposal = _Proposal(
+            subject_ref="SEL-1", target_locator=_select_locator(channel), proposed_value={"options": ["red", "blue"]}
+        )
+
+        enrichment_adapter.apply(proposal)
+
+        rows = ProductAttribute.objects.filter(product=product, feature=feature)
+        assert [row.overridden_langs for row in rows] == [["*"], ["*"]]
+
+    def test_build_context_includes_select_labels(self):
+        channel = _en_channel()
+        product = _make_bare_product(channel=channel, sku="SEL-CTX")
+        feature = _select_feature(multi=True)
+        FeatureInFeatureSetFactory(feature_set=product.feature_set, feature=feature)
+        _choose(product, feature, "red", "blue")
+
+        ctx = enrichment_adapter.build_context(subject_ref="SEL-CTX", channel=channel.idx, language="de")
+
+        assert ctx["attributes"]["enr_color"] == "Red, Blue"
