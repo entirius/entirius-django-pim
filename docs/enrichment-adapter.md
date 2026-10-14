@@ -26,6 +26,8 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `read_current(*, subject_ref, target_kind, target_locator)` | READ | Authoritative current value → drift / diff / undo snapshot |
 | `apply(proposal)` | WRITE | Write `proposed_value` into PIM (the only enrichment→PIM write site) |
 | `revert(proposal)` | WRITE | Restore `current_snapshot` (single-level undo) |
+| `build_context(*, subject_ref, channel, language)` | READ, optional | Compact prompt context — see below |
+| `main_picture(*, subject_ref, channel)` | READ, optional | `(bytes, mime)` of the main picture; `ValueError` if none |
 
 ## Locator / value convention
 
@@ -33,7 +35,7 @@ The bus treats these as opaque — only this adapter reads them.
 
 - `subject_ref` = product SKU
 - `target_kind` = `"attribute_value"` (text) | `"picture"` (media) | `"feature_set"`
-  (classification) | `"picture_alt"` (alt texts)
+  (classification) | `"picture_alt"` (alt texts) | `"video"` (media)
 
 | target_kind | `target_locator` | `proposed_value` | `current_snapshot` |
 |-------------|------------------|------------------|--------------------|
@@ -41,6 +43,7 @@ The bus treats these as opaque — only this adapter reads them.
 | `picture` | `{"channel"}` | `{"op": "replace_main", "alt_t9n": {...}}` | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none |
 | `feature_set` | `{"channel"}` | `{"featureset_idx": <idx of an existing FeatureSet>}` | `{"featureset_idx": <current idx, "" if product missing>}` |
 | `picture_alt` | `{"channel", "language"}` | `{"alts": {"<picture_pk>": <alt for that language>}}` | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures, `{"alts": {}}` if product missing |
+| `video` | `{"channel"}` | — (binary staged in the bus) | `{"files": [<stored names of linked VIDEO files>]}`, `{"files": []}` if product missing |
 
 Scope specs (`resolve_targets` / `find_gaps`):
 
@@ -108,6 +111,28 @@ empty/whitespace alt string — is worker misuse (`ValueError`; an applied `""` 
 the finding and the enrichment loop would respawn the candidate forever). A **revert**, by
 contrast, may restore `""` (a snapshotted empty state) and treats an empty snapshot
 (`{"alts": {}}` — no pictures at intake) as a no-op.
+
+## Video writes (`target_kind=video`)
+
+`apply` reads the staged binary via `proposal.open_staged_file()`, uploads it through
+`product_file_service.upload_file` (type VIDEO, SHA1 dedup, label = product name in the channel's
+main language) and links it with `link_file_to_product`. The bus drops the staged copy after
+apply, so `revert` unlinks the files listed in `applied_snapshot` but not in `current_snapshot`.
+The `Files` row stays; only the link goes. An empty diff raises `ValueError` — apply always adds
+one link, so a silent no-op would mark the proposal reverted while the video stays live. Apply
+raises too when SHA1 dedup returns an existing non-VIDEO row (it would never show up in the
+snapshots, so revert could not unlink it).
+
+## Prompt context (`build_context`)
+
+`{sku, name, brand, category, attributes: {feature_idx: text}, description, short_description}`.
+Values come in `language` and fall back to the channel's main language. Select attributes resolve
+to the attribute name; JSON and datetime features are skipped. Text is stripped of markup and HTML
+comments (no hidden prompt injection, no tags cut mid-way) before capping. Caps keep the payload
+around 4 KB: description 1200 chars, short description 300, other values (category included) 100,
+at most 20 attributes. It runs
+for every product and language, so the query count is constant (5): channel, product, main language,
+attributes, first category.
 
 ## find_gaps
 

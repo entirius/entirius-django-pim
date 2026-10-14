@@ -16,10 +16,12 @@ PIM locator / value convention (the bus treats both as opaque — only this modu
                     | `"feature_set"` (classification, featureset-cascade etap-02)
                     | `"category"` (classification — AI picks existing categories, `{"category_idxs": [...]}`)
                     | `"picture_alt"` (alt texts, featureset-cascade etap-05-extra)
+                    | `"video"` (media — a generated product video attached as a VIDEO file, AI POC A1)
 - `target_locator`  = `{"channel": <channel_idx>, "language": <iso2>, "feature_idx": <idx>}`  (text)
                     | `{"channel": <channel_idx>}`                                            (picture)
                     | `{"channel": <channel_idx>}`                                            (feature_set)
                     | `{"channel": <channel_idx>, "language": <iso2>}`                        (picture_alt)
+                    | `{"channel": <channel_idx>}`                                            (video)
 - `proposed_value`  = `{"text": <new value for that single language>}`                        (text)
                     | `{"op": "replace_main", "alt_t9n": {<iso2>: <alt>}}`                    (picture)
                     | `{"featureset_idx": <idx of an existing FeatureSet>}`                   (feature_set)
@@ -28,6 +30,15 @@ PIM locator / value convention (the bus treats both as opaque — only this modu
                     | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none (picture)
                     | `{"featureset_idx": <current idx, "" if product missing>}`              (feature_set)
                     | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures (picture_alt)
+                    | `{"files": [<stored names of the VIDEO files linked to the product>]}`  (video)
+
+Video (`target_kind == "video"`): like `picture`, the binary is staged in the bus. `apply` uploads it
+via `product_file_service.upload_file` (type VIDEO, label = product name) and links it. `revert`
+unlinks the files present in `applied_snapshot` but not in `current_snapshot` — the staged copy is
+gone after apply, so the snapshot diff is the only record of what this proposal linked.
+
+Optional callables for the AI workers: `build_context` (compact product facts for a prompt) and
+`main_picture` (bytes + mime of the main picture, input for the video kind).
 
 Classification (`target_kind == "feature_set"`, etap-02): the FIRST classification gap — the AI
 resolves it by picking an existing PIM entity (a `FeatureSet` idx from `GET feature-sets/`), not by
@@ -73,24 +84,30 @@ Two non-obvious rules this adapter owns (the bus stays dumb about them):
    non-default channel (decision PO: don't write override metadata where it's meaningless).
 """
 
+import io
+
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q
+from django.utils.html import strip_tags
+from PIL import Image
 
 from ..models import (
     Feature,
     FeatureSet,
     FeatureTypeEnum,
+    FileRoleEnum,
     GapCheck,
     GapDefinition,
     GapFinding,
     Picture,
     PictureRoleEnum,
     ProductAttribute,
+    ProductFile,
     ProductPicture,
 )
 from ..settings import DESCRIPTION_FEATURE_IDXS
-from . import product_picture_service, product_service
+from . import product_file_service, product_picture_service, product_service
 
 # How many SKUs a worker pulls per `resolve_targets` page. The bus passes `page`; we never
 # materialise the whole catalogue.
@@ -128,6 +145,8 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
         return _read_current_category(subject_ref, target_locator)
     if target_kind == "picture_alt":
         return _read_current_picture_alt(subject_ref, target_locator)
+    if target_kind == "video":
+        return _read_current_video(subject_ref, target_locator)
     if target_kind != "attribute_value":
         return {"text": ""}
     channel_idx, language, feature_idx = _locator(target_locator)
@@ -151,6 +170,9 @@ def apply(proposal) -> None:
     """
     if proposal.target_kind == "picture":
         _apply_picture(proposal)
+        return
+    if proposal.target_kind == "video":
+        _apply_video(proposal)
         return
     if proposal.target_kind == "feature_set":
         _write_feature_set(
@@ -201,6 +223,9 @@ def revert(proposal) -> None:
     """Restore the target to `current_snapshot` (single-level undo — etap-09 deepens this)."""
     if proposal.target_kind == "picture":
         _revert_picture(proposal)
+        return
+    if proposal.target_kind == "video":
+        _revert_video(proposal)
         return
     if proposal.target_kind == "feature_set":
         _write_feature_set(
@@ -549,6 +574,158 @@ def _write_picture_alts(channel_idx: str, *, subject_ref: str, language: str, al
             merged[language] = parsed[pp.pk]
             pp.alt_text_t9n = merged
             pp.save(update_fields=["alt_text_t9n"])
+
+
+def _read_current_video(subject_ref: str, target_locator: dict) -> dict:
+    """Stored names of the product's VIDEO files (drift baseline; revert diffs two of these).
+
+    Names are the hashed storage names — unique per `Files` row (SHA1 dedup), so they identify a
+    link. Missing product collapses to `{"files": []}` so the bus can still diff.
+    """
+    try:
+        product = product_service.get_product_by_sku(target_locator["channel"], subject_ref)
+    except ObjectDoesNotExist:
+        return {"files": []}
+    names = ProductFile.objects.filter(product=product, file__file_type=FileRoleEnum.VIDEO).values_list(
+        "file__file", flat=True
+    )
+    return {"files": sorted(names)}
+
+
+def _apply_video(proposal) -> None:
+    """Staged video → `upload_file` (type VIDEO, SHA1 dedup, label = name in the main language) → link."""
+    channel_idx = proposal.target_locator["channel"]
+    product = product_service.get_product_by_sku(channel_idx, proposal.subject_ref)
+    label = product.name_lang(product.shop.default_language.iso2.lower())[:256]
+    staged = proposal.open_staged_file()
+    try:
+        video = product_file_service.upload_file(staged, file_label=label, file_type="video")
+    finally:
+        staged.close()
+    if video.file_type != FileRoleEnum.VIDEO:
+        raise ValueError(f"staged video for {proposal.subject_ref!r} deduplicated to a non-VIDEO file")
+    product_file_service.link_file_to_product(channel_idx, proposal.subject_ref, video.pk)
+
+
+def _revert_video(proposal) -> None:
+    """Unlink the file(s) this proposal linked: in `applied_snapshot` but not in `current_snapshot`.
+
+    The `Files` row stays (only the link goes), mirroring `product_file_service.unlink_file_from_product`.
+    """
+    applied = set((proposal.applied_snapshot or {}).get("files") or [])
+    added = applied - set((proposal.current_snapshot or {}).get("files") or [])
+    if not added:
+        raise ValueError(
+            f"video revert for {proposal.subject_ref!r}: applied_snapshot adds no file "
+            f"(snapshot {proposal.applied_snapshot!r})"
+        )
+    channel_idx = proposal.target_locator["channel"]
+    product = product_service.get_product_by_sku(channel_idx, proposal.subject_ref)
+    for link_pk in ProductFile.objects.filter(product=product, file__file__in=added).values_list("pk", flat=True):
+        product_file_service.unlink_file_from_product(channel_idx, proposal.subject_ref, link_pk)
+
+
+def main_picture(*, subject_ref: str, channel: str) -> tuple[bytes, str]:
+    """Bytes + mime of the product's main picture (input for the video worker).
+
+    Raises `ObjectDoesNotExist` for a missing product and `ValueError` when there is no main picture
+    — the worker fails that subject. Mime is sniffed from the bytes (Picture stores no type).
+    """
+    picture = product_service.get_product_by_sku(channel, subject_ref).main_picture
+    if picture is None or not picture.image:
+        raise ValueError(f"product {subject_ref!r} has no main picture in channel {channel!r}")
+    with picture.image.open("rb") as fh:
+        data = fh.read()
+    with Image.open(io.BytesIO(data)) as image:
+        return data, Image.MIME.get(image.format, "application/octet-stream")
+
+
+# Prompt-context caps: keep `build_context` around ~4 KB whatever the catalogue holds.
+_CONTEXT_DESCRIPTION_CAP = 1200
+_CONTEXT_SHORT_DESCRIPTION_CAP = 300
+_CONTEXT_VALUE_CAP = 100
+_CONTEXT_MAX_ATTRIBUTES = 20
+_CONTEXT_TOP_LEVEL_IDXS = frozenset({"name", "brand", "description", "short_description"})
+_NUMERIC_TYPES = frozenset(
+    {FeatureTypeEnum.DECIMAL, FeatureTypeEnum.TEMPERATURE, FeatureTypeEnum.LENGTH, FeatureTypeEnum.MASS}
+)
+
+
+def build_context(*, subject_ref: str, channel: str, language: str) -> dict:
+    """Compact, JSON-safe product facts for an AI prompt — read-only, constant query count.
+
+    Text values are taken in `language`, falling back to the channel's main language. Long texts are
+    stripped of markup, then capped (description, short description, category, every attribute value;
+    at most 20 attributes).
+    """
+    product = product_service.get_product_by_sku(channel, subject_ref)
+    langs = (language.lower(), product.shop.default_language.iso2.lower())
+    values = _attribute_texts(product, langs)
+    attributes = [(idx, text) for idx, text in values.items() if idx not in _CONTEXT_TOP_LEVEL_IDXS]
+    return {
+        "sku": product.real_product.sku,
+        "name": _cap(values.get("name", ""), _CONTEXT_VALUE_CAP),
+        "brand": _cap(values.get("brand", ""), _CONTEXT_VALUE_CAP),
+        "category": _cap(_category_name(product, langs), _CONTEXT_VALUE_CAP),
+        "attributes": {idx: _cap(text, _CONTEXT_VALUE_CAP) for idx, text in attributes[:_CONTEXT_MAX_ATTRIBUTES]},
+        "description": _cap(values.get("description", ""), _CONTEXT_DESCRIPTION_CAP),
+        "short_description": _cap(values.get("short_description", ""), _CONTEXT_SHORT_DESCRIPTION_CAP),
+    }
+
+
+def _attribute_texts(product, langs: tuple[str, str]) -> dict[str, str]:
+    """`{feature_idx: text}` for every non-empty attribute in one query (multiselect rows joined)."""
+    rows = (
+        ProductAttribute.objects.filter(product=product)
+        .select_related("feature", "attribute")
+        .order_by("feature__idx", "pk")
+    )
+    texts: dict[str, list[str]] = {}
+    for row in rows:
+        if text := _attribute_text(row, langs):
+            texts.setdefault(row.feature.idx, []).append(text)
+    return {idx: ", ".join(parts) for idx, parts in texts.items()}
+
+
+def _attribute_text(row: ProductAttribute, langs: tuple[str, str]) -> str:
+    """One attribute row as plain text; JSON/datetime/unknown types are skipped ("")."""
+    feature_type = row.feature.feature_type
+    if feature_type in _T9N_TEXT_TYPES:
+        return _first_language(row.value_txt_t9n, langs)
+    if feature_type in (FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT):
+        return _first_language(row.attribute.name_t9n, langs) if row.attribute else ""
+    if feature_type in (FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT):
+        return _plain(row.value_txt or "")
+    if feature_type == FeatureTypeEnum.BOOL and row.value_bool is not None:
+        return "yes" if row.value_bool else "no"
+    if feature_type in _NUMERIC_TYPES and row.value_decimal is not None:
+        return f"{row.value_decimal.normalize():f}"
+    return ""
+
+
+def _category_name(product, langs: tuple[str, str]) -> str:
+    """Name of the product's first category (by position), "" when it has none."""
+    link = product.product_in_category.select_related("category").order_by("position", "pk").first()
+    return _first_language(link.category.name_t9n, langs) if link else ""
+
+
+def _first_language(t9n, langs: tuple[str, str]) -> str:
+    """First non-blank value of a `{iso2: text}` map in `langs` order, "" if none."""
+    if not isinstance(t9n, dict):
+        return ""
+    for lang in langs:
+        if text := _plain(str(t9n.get(lang) or "")):
+            return text
+    return ""
+
+
+def _plain(text: str) -> str:
+    """Markup and HTML comments stripped, whitespace collapsed — caps then count facts, not tags."""
+    return " ".join(strip_tags(text).split())
+
+
+def _cap(text: str, limit: int) -> str:
+    return text if len(text) <= limit else f"{text[: limit - 1].rstrip()}…"
 
 
 def resolve_targets(scope_spec: dict, page: int = 1) -> list:
