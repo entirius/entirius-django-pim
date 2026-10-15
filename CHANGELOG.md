@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Enrichment adapter: derived pictures (the AI image worker) — `apply_modes(target_kind, target_locator)` offers
+  `add` / `replace` for a picture whose locator names its source picture; `add` links the new file as a gallery
+  picture after the others (undo removes the link), `replace` swaps the source picture's file in place (undo puts
+  the old file back, the old `Picture` is the undo anchor). `apply` returns `{"ref"}` for an added link.
 - Enrichment adapter: `list_pictures(subject_ref, channel)` (`[{ref, label, url, is_main}]`, main first, a picture
   linked twice listed once) and `picture(subject_ref, channel, picture_ref)` (`(bytes, mime)`; a ref that is not the
   product's → `LookupError`) — the AI studio animates a chosen picture in a video.

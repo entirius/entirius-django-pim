@@ -30,6 +30,7 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `main_picture(*, subject_ref, channel)` | READ, optional | `(bytes, mime)` of the main picture; `ValueError` if none |
 | `list_pictures(*, subject_ref, channel)` | READ, optional | `[{ref, label, url, is_main}]` of the product's pictures, main first then by position; `ref` = product-picture link pk, label = alt in the channel main language, else the file name |
 | `picture(*, subject_ref, channel, picture_ref)` | READ, optional | `(bytes, mime)` of one picture by `list_pictures` ref; `LookupError` when it is not this product's |
+| `apply_modes(*, target_kind, target_locator)` | READ, optional | `["add", "replace"]` for a derived picture (locator has `source_picture_ref`), `[]` otherwise (video: add only) |
 | `describe_fields(*, channel, language="")` | READ, optional | Field catalog — see below |
 | `channel_languages(*, channel)` | READ, optional | Lowercase iso2 languages of the channel, main first |
 | `make_locator(*, field_key, channel, language)` | READ, optional | `attribute_value` locator for a catalog field |
@@ -49,6 +50,7 @@ The bus treats these as opaque — only this adapter reads them.
 | `attribute_value` | `{"channel", "language", "feature_idx"}` | `{"text": <value for that language>}` | `{"text": <raw stored value, "" if absent>}` |
 | `attribute_value` (select) | `{"channel", "language": null, "feature_idx"}` | `{"option": <idx>}` / `{"options": [<idx>, ...]}` | `{"option": <idx, "" if none>}` / `{"options": [<sorted idxs>]}` |
 | `picture` | `{"channel"}` | `{"op": "replace_main", "alt_t9n": {...}}` | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none |
+| `picture` (derived) | `{"channel", "source_picture_ref", "operation", "variant"}` | `{"op": "derived", "operation", "preset", "variant", "of"}` | `{"ref", "sha1", "position", "alt_t9n", "url"}` of the source picture, `{}` if gone |
 | `feature_set` | `{"channel"}` | `{"featureset_idx": <idx of an existing FeatureSet>}` | `{"featureset_idx": <current idx, "" if product missing>}` |
 | `picture_alt` | `{"channel", "language"}` | `{"alts": {"<picture_pk>": <alt for that language>}}` | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures, `{"alts": {}}` if product missing |
 | `video` | `{"channel"}` | — (binary staged in the bus) | `{"files": [<stored names of linked VIDEO files>]}`, `{"files": []}` if product missing |
@@ -119,6 +121,18 @@ empty/whitespace alt string — is worker misuse (`ValueError`; an applied `""` 
 the finding and the enrichment loop would respawn the candidate forever). A **revert**, by
 contrast, may restore `""` (a snapshotted empty state) and treats an empty snapshot
 (`{"alts": {}}` — no pictures at intake) as a no-op.
+
+## Derived picture writes (`op=derived`)
+
+The image worker's outputs are processed copies of one product picture (`source_picture_ref` = the
+product-picture link pk). The bus stores the operator's choice in `proposal.apply_mode`:
+
+- `add` (default, and every bulk accept): upload the staged file, link it as a `general` picture after the
+  product's last position, with the source's alt texts; `apply` returns `{"ref": <link pk>}` (the bus keeps it in
+  `result_ref`) and `revert` deletes that link.
+- `replace`: swap the file of the source link in place (role, position, alt texts stay); the old `Picture` stays
+  in the pool as the undo anchor (`current_snapshot.sha1`), `revert` puts it back, `release_undo_anchor` GCs it
+  once retention expires. A source removed before apply → `ValueError` (add instead).
 
 ## Video writes (`target_kind=video`)
 

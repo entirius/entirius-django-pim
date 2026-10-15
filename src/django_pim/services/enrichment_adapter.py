@@ -19,6 +19,7 @@ PIM locator / value convention (the bus treats both as opaque — only this modu
                     | `"video"` (media — a generated product video attached as a VIDEO file, AI POC A1)
 - `target_locator`  = `{"channel": <channel_idx>, "language": <iso2>, "feature_idx": <idx>}`  (text)
                     | `{"channel": <channel_idx>}`                                            (picture)
+                    | `{"channel", "source_picture_ref": <ProductPicture pk>, "operation", "variant"}` (derived picture)
                     | `{"channel": <channel_idx>}`                                            (feature_set)
                     | `{"channel": <channel_idx>, "language": <iso2>}`                        (picture_alt)
                     | `{"channel": <channel_idx>}`                                            (video)
@@ -26,11 +27,13 @@ PIM locator / value convention (the bus treats both as opaque — only this modu
 - `proposed_value`  = `{"text": <new value for that single language>}`                        (text)
                     | `{"option": <Attribute.idx>}` / `{"options": [<Attribute.idx>, ...]}`   (select / multiselect)
                     | `{"op": "replace_main", "alt_t9n": {<iso2>: <alt>}}`                    (picture)
+                    | `{"op": "derived", "operation", "preset", "variant", "of"}`             (derived picture)
                     | `{"featureset_idx": <idx of an existing FeatureSet>}`                   (feature_set)
                     | `{"alts": {"<picture_pk>": <alt for that single language>}}`            (picture_alt)
 - `current_snapshot`= `{"text": <raw stored value for that language, "" if absent>}`          (text)
                     | `{"option": <idx, "" if none>}` / `{"options": [<sorted idxs>]}`        (select / multiselect)
                     | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none (picture)
+                    | `{"ref", "sha1", "position", "alt_t9n", "url"}` of the source picture, `{}` if gone (derived)
                     | `{"featureset_idx": <current idx, "" if product missing>}`              (feature_set)
                     | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures (picture_alt)
                     | `{"files": [<stored names of the VIDEO files linked to the product>]}`  (video)
@@ -40,9 +43,15 @@ via `product_file_service.upload_file` (type VIDEO, label = product name) and li
 unlinks the files present in `applied_snapshot` but not in `current_snapshot` — the staged copy is
 gone after apply, so the snapshot diff is the only record of what this proposal linked.
 
+Derived pictures (plan 25, the image worker): `apply_modes` offers `add` | `replace` for a picture whose locator
+names its source. `add` (the default, and what a bulk accept does) links the new file as a general gallery
+picture after the others and returns `{"ref": <link pk>}` (the bus keeps it in `result_ref`; undo deletes that
+link); `replace` swaps the file of the source link in place, the old `Picture` staying in the pool as the undo
+anchor (`current_snapshot.sha1`). Video has no replace target in PIM — add only.
+
 Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
 `main_picture` (bytes + mime of the main picture, input for the video kind), `list_pictures` / `picture`
-(the product's pictures to choose from, and one of them by ref, for a video of a chosen picture) and the field catalog
+(the product's pictures to choose from, and one of them by ref, for the video and image kinds) and the field catalog
 `describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features),
 and `category_of` (the product's first category as a memory ref, so category-scoped SEO briefs are shared).
 
@@ -95,7 +104,7 @@ import io
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django.db.models import F, Q, Window
+from django.db.models import F, Max, Q, Window
 from django.db.models.functions import RowNumber
 from django.utils.html import strip_tags
 from PIL import Image
@@ -133,6 +142,13 @@ from . import product_file_service, product_picture_service, product_service
 # How many SKUs a worker pulls per `resolve_targets` page. The bus passes `page`; we never
 # materialise the whole catalogue.
 _PAGE_SIZE = 100
+
+# Derived pictures (plan 25): the image worker's outputs point at the picture they were made from; the operator
+# adds them to the gallery or lets them replace that picture.
+_SOURCE_PICTURE_KEY = "source_picture_ref"
+_DERIVED_OP = "derived"
+_MODE_ADD = "add"
+_MODE_REPLACE = "replace"
 
 # `attribute_value` writes translatable text and select/multiselect options only. Scalar features
 # fail loud rather than silently no-op (a t9n payload sent to a non-t9n feature would be dropped by
@@ -178,6 +194,8 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
     product / feature / language all collapse to `{"text": ""}` so the bus can still diff and
     detect drift.
     """
+    if target_kind == "picture" and target_locator.get(_SOURCE_PICTURE_KEY):
+        return _read_current_source_picture(subject_ref, target_locator)
     if target_kind == "picture":
         return _read_current_picture(subject_ref, target_locator)
     if target_kind == "feature_set":
@@ -205,7 +223,7 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
     return {"text": raw.get(language) or ""}
 
 
-def apply(proposal) -> None:
+def apply(proposal) -> dict | None:
     """Write `proposed_value` into the target (text for one language, or select/multiselect options).
 
     The ONLY place enrichment writes back to PIM. Drift is already checked by the bus
@@ -213,18 +231,17 @@ def apply(proposal) -> None:
     docstring). Raises for unsupported feature types / missing product so misuse is loud.
     """
     if proposal.target_kind == "picture":
-        _apply_picture(proposal)
-        return
+        return _apply_picture(proposal)
     if proposal.target_kind == "video":
         _apply_video(proposal)
-        return
+        return None
     if proposal.target_kind == "feature_set":
         _write_feature_set(
             proposal.target_locator["channel"],
             subject_ref=proposal.subject_ref,
             featureset_idx=proposal.proposed_value.get("featureset_idx"),
         )
-        return
+        return None
     if proposal.target_kind == "category":
         category_idxs = (proposal.proposed_value or {}).get("category_idxs")
         if not category_idxs:
@@ -234,7 +251,7 @@ def apply(proposal) -> None:
         _write_categories(
             proposal.target_locator["channel"], subject_ref=proposal.subject_ref, category_idxs=category_idxs
         )
-        return
+        return None
     if proposal.target_kind == "picture_alt":
         alts = (proposal.proposed_value or {}).get("alts")
         if not alts:
@@ -252,12 +269,21 @@ def apply(proposal) -> None:
             language=proposal.target_locator["language"],
             alts=alts,
         )
-        return
+        return None
     _reject_non_writable(proposal.target_locator)
     _reject_inherited_select_clear(
         proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value
     )
     _write_attribute(proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value)
+    return None
+
+
+def apply_modes(*, target_kind: str, target_locator: dict) -> list[str]:
+    """A picture made from one of the product's pictures (locator `source_picture_ref`) can be added to the
+    gallery or replace that picture; every other target has one fixed way (`[]`). Video: add only."""
+    if target_kind == "picture" and target_locator.get(_SOURCE_PICTURE_KEY):
+        return [_MODE_ADD, _MODE_REPLACE]
+    return []
 
 
 def revert(proposal) -> None:
@@ -325,8 +351,86 @@ def _read_current_picture(subject_ref: str, target_locator: dict) -> dict:
     }
 
 
-def _apply_picture(proposal) -> None:
+def _read_current_source_picture(subject_ref: str, target_locator: dict) -> dict:
+    """Snapshot of the picture a derived picture was made from (`source_picture_ref`), `{}` once it is gone.
+
+    Drift baseline (the source changed → re-confirm) and the undo anchor of `replace` (the old `sha1`)."""
+    link = _source_link(subject_ref, target_locator)
+    if link is None:
+        return {}
+    picture = link.picture
+    return {
+        "ref": str(link.pk),
+        "sha1": picture.sha1 or "",
+        "position": link.position,
+        "alt_t9n": link.alt_text_t9n or {},
+        "url": picture.image.url if picture.image else "",
+    }
+
+
+def _source_link(subject_ref: str, target_locator: dict) -> ProductPicture | None:
+    """The product's picture link `source_picture_ref` points at; None when the product or the link is gone."""
+    ref = str(target_locator.get(_SOURCE_PICTURE_KEY) or "")
+    try:
+        product = product_service.get_product_by_sku(target_locator["channel"], subject_ref)
+    except ObjectDoesNotExist:
+        return None
+    if not ref.isdigit():
+        return None
+    return product.pictures.select_related("picture").filter(pk=int(ref)).first()
+
+
+def _upload_staged(proposal) -> Picture:
+    staged = proposal.open_staged_file()
+    try:
+        return product_picture_service.upload_picture(staged)
+    finally:
+        staged.close()
+
+
+def _apply_derived(proposal) -> dict | None:
+    """`op=derived` (a processed copy of one product picture): `replace` swaps the source link's file (the old
+    `Picture` stays in the pool as the undo anchor); `add` (default) links it as a new gallery picture after the
+    others, with the source's alt texts, and returns that link as `{"ref"}` for undo."""
+    channel_idx, sku = proposal.target_locator["channel"], proposal.subject_ref
+    source = _source_link(sku, proposal.target_locator)
+    if getattr(proposal, "apply_mode", "") == _MODE_REPLACE:
+        if source is None:
+            raise ValueError(f"the original picture of {sku!r} is no longer in the gallery — add the new one instead")
+        product_picture_service.update_product_picture(channel_idx, sku, source.pk, picture=_upload_staged(proposal))
+        return None
+    product = product_service.get_product_by_sku(channel_idx, sku)
+    last = product.pictures.aggregate(last=Max("position"))["last"]
+    link = product_picture_service.link_picture_to_product(
+        channel_idx,
+        sku,
+        _upload_staged(proposal).pk,
+        picture_role="general",
+        position=(last or 0) + 1,
+        alt_text_t9n=source.alt_text_t9n if source else {},
+    )
+    return {"ref": str(link.pk)}
+
+
+def _revert_derived(proposal) -> None:
+    """Undo `op=derived`: `replace` puts the old file (`current_snapshot.sha1`) back on the source link; `add`
+    removes the gallery link the apply created (`result_ref`)."""
+    channel_idx, sku = proposal.target_locator["channel"], proposal.subject_ref
+    if getattr(proposal, "apply_mode", "") != _MODE_REPLACE:
+        added = str(getattr(proposal, "result_ref", "") or "")
+        product = product_service.get_product_by_sku(channel_idx, sku)
+        product.pictures.filter(pk=int(added) if added.isdigit() else None).delete()
+        return
+    old = Picture.objects.filter(sha1=(proposal.current_snapshot or {}).get("sha1") or "").first()
+    source = _source_link(sku, proposal.target_locator)
+    if old is None or source is None:
+        raise ValueError(f"cannot restore the original picture of {sku!r}: it is no longer available")
+    product_picture_service.update_product_picture(channel_idx, sku, source.pk, picture=old)
+
+
+def _apply_picture(proposal) -> dict | None:
     """`op=replace_main`: staged binary → `upload_picture` (SHA1 dedup) → link as main → drop old main.
+    `op=derived` → `_apply_derived`.
 
     The old `Picture` row is intentionally kept (only its `ProductPicture` link is removed) so undo
     (`revert`) can re-link it. Runs inside the bus's apply transaction.
@@ -335,15 +439,12 @@ def _apply_picture(proposal) -> None:
     sku = proposal.subject_ref
     value = proposal.proposed_value or {}
     op = value.get("op", "replace_main")
+    if op == _DERIVED_OP:
+        return _apply_derived(proposal)
     if op != "replace_main":
-        raise ValueError(f"unsupported picture op {op!r} (only 'replace_main')")
+        raise ValueError(f"unsupported picture op {op!r} (only 'replace_main' or 'derived')")
 
-    staged = proposal.open_staged_file()
-    try:
-        picture = product_picture_service.upload_picture(staged)
-    finally:
-        staged.close()
-
+    picture = _upload_staged(proposal)
     product = product_service.get_product_by_sku(channel_idx, sku)
     # Drop the old main LINK only — Picture stays in the pool as the undo anchor (GC = etap-10).
     ProductPicture.objects.filter(product=product, picture_role=PictureRoleEnum.MAIN).delete()
@@ -356,14 +457,19 @@ def _apply_picture(proposal) -> None:
         language_iso2=None,
         alt_text_t9n=value.get("alt_t9n") or {},
     )
+    return None
 
 
 def _revert_picture(proposal) -> None:
     """Undo `replace_main`: drop the current main, re-link the old `Picture` from `current_snapshot`.
+    `op=derived` → `_revert_derived`.
 
     Looks the old picture up by the snapshot `sha1` (still in the pool — GC is etap-10). If the
     snapshot is empty (no prior main) just removes the current main.
     """
+    if (proposal.proposed_value or {}).get("op") == _DERIVED_OP:
+        _revert_derived(proposal)
+        return
     channel_idx = proposal.target_locator["channel"]
     sku = proposal.subject_ref
     snapshot = proposal.current_snapshot or {}

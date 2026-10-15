@@ -1409,6 +1409,129 @@ class TestPicture:
             enrichment_adapter.picture(subject_ref="PC-4", channel=channel.idx, picture_ref=ref)
 
 
+def _derived(channel, sku, source, *, mode="", color="blue", result_ref="", current=None):
+    locator = {"channel": channel.idx, "source_picture_ref": str(source.pk), "operation": "packshot", "variant": 1}
+    proposal = _Proposal(
+        subject_ref=sku,
+        target_locator=locator,
+        target_kind="picture",
+        proposed_value={"op": "derived", "operation": "packshot", "preset": "", "variant": 1, "of": 1},
+        current_snapshot=current,
+        staged_image=_image(name="out.png", color=color),
+    )
+    proposal.apply_mode = mode
+    proposal.result_ref = result_ref
+    return proposal
+
+
+def _read_derived(proposal):
+    return enrichment_adapter.read_current(
+        subject_ref=proposal.subject_ref, target_kind="picture", target_locator=proposal.target_locator
+    )
+
+
+@pytest.mark.django_db
+class TestDerivedPicture:
+    """Plan 25: a processed copy of one product picture — added to the gallery or replacing its source."""
+
+    def _product(self, sku):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku=sku)
+        main = _link(channel, sku, color="red", role="main", position=0, alt={"pl": "Kubek"})
+        side = _link(channel, sku, color="green", position=3)
+        return channel, main, side
+
+    def test_apply_modes_only_for_a_picture_with_a_source(self):
+        assert enrichment_adapter.apply_modes(
+            target_kind="picture", target_locator={"channel": "c", "source_picture_ref": "5"}
+        ) == ["add", "replace"]
+        assert enrichment_adapter.apply_modes(target_kind="picture", target_locator={"channel": "c"}) == []
+        assert enrichment_adapter.apply_modes(target_kind="video", target_locator={"channel": "c"}) == []
+
+    def test_read_current_snapshots_the_source(self):
+        channel, main, _side = self._product("DP-1")
+
+        snap = _read_derived(_derived(channel, "DP-1", main))
+
+        assert snap["ref"] == str(main.pk)
+        assert snap["sha1"] == main.picture.sha1
+        assert snap["alt_t9n"] == {"pl": "Kubek"}
+
+    def test_add_links_a_new_gallery_picture_after_the_others(self):
+        channel, main, side = self._product("DP-2")
+        proposal = _derived(channel, "DP-2", main, mode="add")
+
+        outcome = enrichment_adapter.apply(proposal)
+
+        added = ProductPicture.objects.get(pk=int(outcome["ref"]))
+        assert added.picture_role == PictureRoleEnum.GENERAL
+        assert added.position == side.position + 1
+        assert added.alt_text_t9n == {"pl": "Kubek"}
+        main.refresh_from_db()
+        assert main.picture.sha1 == _read_derived(proposal)["sha1"]  # the original is untouched
+
+    def test_blank_mode_adds(self):
+        channel, main, _side = self._product("DP-3")
+
+        outcome = enrichment_adapter.apply(_derived(channel, "DP-3", main))
+
+        assert ProductPicture.objects.filter(pk=int(outcome["ref"])).exists()
+
+    def test_replace_swaps_the_source_file_in_place(self):
+        channel, main, _side = self._product("DP-4")
+        old_picture = main.picture
+        proposal = _derived(channel, "DP-4", main, mode="replace")
+
+        assert enrichment_adapter.apply(proposal) is None
+
+        main.refresh_from_db()
+        assert main.picture_id != old_picture.pk
+        assert main.picture_role == PictureRoleEnum.MAIN
+        assert Picture.objects.filter(pk=old_picture.pk).exists()  # the undo anchor stays in the pool
+        assert ProductPicture.objects.filter(product=main.product).count() == 2
+
+    def test_replace_of_a_removed_source_is_refused(self):
+        channel, main, _side = self._product("DP-5")
+        proposal = _derived(channel, "DP-5", main, mode="replace")
+        main.delete()
+
+        with pytest.raises(ValueError, match="no longer in the gallery"):
+            enrichment_adapter.apply(proposal)
+
+    def test_undo_of_add_removes_the_added_link(self):
+        channel, main, _side = self._product("DP-6")
+        proposal = _derived(channel, "DP-6", main, mode="add")
+        proposal.result_ref = enrichment_adapter.apply(proposal)["ref"]
+
+        enrichment_adapter.revert(proposal)
+
+        assert not ProductPicture.objects.filter(pk=int(proposal.result_ref)).exists()
+        assert ProductPicture.objects.filter(product=main.product).count() == 2
+
+    def test_undo_of_replace_restores_the_original_file(self):
+        channel, main, _side = self._product("DP-7")
+        proposal = _derived(channel, "DP-7", main, mode="replace")
+        proposal.current_snapshot = _read_derived(proposal)
+        enrichment_adapter.apply(proposal)
+
+        enrichment_adapter.revert(proposal)
+
+        assert _read_derived(proposal) == proposal.current_snapshot
+        main.refresh_from_db()
+        assert main.picture.sha1 == proposal.current_snapshot["sha1"]
+
+    def test_release_undo_anchor_reclaims_the_replaced_file(self):
+        channel, main, _side = self._product("DP-8")
+        old_pk = main.picture_id
+        proposal = _derived(channel, "DP-8", main, mode="replace")
+        proposal.current_snapshot = _read_derived(proposal)
+        enrichment_adapter.apply(proposal)
+        proposal.applied_snapshot = _read_derived(proposal)
+
+        assert enrichment_adapter.release_undo_anchor(proposal) == 1
+        assert not Picture.objects.filter(pk=old_pk).exists()
+
+
 @pytest.mark.django_db
 class TestVideo:
     def _read(self, channel, sku):
