@@ -41,7 +41,8 @@ unlinks the files present in `applied_snapshot` but not in `current_snapshot` �
 gone after apply, so the snapshot diff is the only record of what this proposal linked.
 
 Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
-`main_picture` (bytes + mime of the main picture, input for the video kind) and the field catalog
+`main_picture` (bytes + mime of the main picture, input for the video kind), `list_pictures` / `picture`
+(the product's pictures to choose from, and one of them by ref, for a video of a chosen picture) and the field catalog
 `describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features),
 and `category_of` (the product's first category as a memory ref, so category-scoped SEO briefs are shared).
 
@@ -770,6 +771,55 @@ def main_picture(*, subject_ref: str, channel: str) -> tuple[bytes, str]:
     picture = product_service.get_product_by_sku(channel, subject_ref).main_picture
     if picture is None or not picture.image:
         raise ValueError(f"product {subject_ref!r} has no main picture in channel {channel!r}")
+    return _image_bytes(picture)
+
+
+def list_pictures(*, subject_ref: str, channel: str) -> list[dict]:
+    """`[{ref, label, url, is_main}]` of the product's pictures — main first, then by position — for choosing
+    the picture a video animates. `ref` is the product-picture link pk (what `picture` takes); the label is its
+    alt text in the channel's main language, else the original file name. A picture linked twice is listed once.
+
+    An unknown product or channel raises `ObjectDoesNotExist`.
+    """
+    product = product_service.get_product_by_sku(channel, subject_ref)
+    main = (product.shop.default_language.iso2.lower(),)
+    links = product.pictures.select_related("picture").order_by("position", "pk")
+    seen: set[int] = set()
+    options = []
+    for link in links:
+        if link.picture_id in seen or not link.picture.image:
+            continue
+        seen.add(link.picture_id)
+        options.append(_picture_option(link, main))
+    return sorted(options, key=lambda option: not option["is_main"])
+
+
+def _picture_option(link: ProductPicture, langs: tuple[str]) -> dict:
+    picture = link.picture
+    return {
+        "ref": str(link.pk),
+        "label": _first_language(link.alt_text_t9n, langs) or picture.original_file_name or "",
+        "url": picture.image.url,
+        "is_main": link.picture_role == PictureRoleEnum.MAIN,
+    }
+
+
+def picture(*, subject_ref: str, channel: str, picture_ref: str) -> tuple[bytes, str]:
+    """Bytes + mime of one of the product's pictures (`ref` from `list_pictures`) — input for the video worker.
+
+    Raises `LookupError` when the ref is not a picture of this product (a foreign or unknown ref is never read),
+    `ObjectDoesNotExist` for a missing product.
+    """
+    product = product_service.get_product_by_sku(channel, subject_ref)
+    pk = int(picture_ref) if picture_ref.isdigit() else None
+    link = product.pictures.select_related("picture").filter(pk=pk).first() if pk else None
+    if link is None or not link.picture.image:
+        raise LookupError(f"picture {picture_ref!r} is not a picture of product {subject_ref!r}")
+    return _image_bytes(link.picture)
+
+
+def _image_bytes(picture: Picture) -> tuple[bytes, str]:
+    """The stored file's bytes; mime is sniffed from them (Picture stores no type)."""
     with picture.image.open("rb") as fh:
         data = fh.read()
     with Image.open(io.BytesIO(data)) as image:

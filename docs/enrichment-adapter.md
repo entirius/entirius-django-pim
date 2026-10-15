@@ -28,6 +28,8 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `revert(proposal)` | WRITE | Restore `current_snapshot` (single-level undo) |
 | `build_context(*, subject_ref, channel, language)` | READ, optional | Compact prompt context — see below |
 | `main_picture(*, subject_ref, channel)` | READ, optional | `(bytes, mime)` of the main picture; `ValueError` if none |
+| `list_pictures(*, subject_ref, channel)` | READ, optional | `[{ref, label, url, is_main}]` of the product's pictures, main first then by position; `ref` = product-picture link pk, label = alt in the channel main language, else the file name |
+| `picture(*, subject_ref, channel, picture_ref)` | READ, optional | `(bytes, mime)` of one picture by `list_pictures` ref; `LookupError` when it is not this product's |
 | `describe_fields(*, channel, language="")` | READ, optional | Field catalog — see below |
 | `channel_languages(*, channel)` | READ, optional | Lowercase iso2 languages of the channel, main first |
 | `make_locator(*, field_key, channel, language)` | READ, optional | `attribute_value` locator for a catalog field |

@@ -1319,6 +1319,85 @@ class TestMainPicture:
             enrichment_adapter.main_picture(subject_ref="MP-2", channel=channel.idx)
 
 
+def _link(channel, sku, *, color, role="general", position=0, alt=None):
+    pic = product_picture_service.upload_picture(_image(name=f"{color}.png", color=color))
+    return product_picture_service.link_picture_to_product(
+        channel.idx, sku, pic.pk, picture_role=role, position=position, alt_text_t9n=alt
+    )
+
+
+@pytest.mark.django_db
+class TestListPictures:
+    def test_main_first_then_by_position(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="LP-1")
+        side = _link(channel, "LP-1", color="blue", position=2)
+        main = _link(channel, "LP-1", color="red", role="main", position=5, alt={"pl": "Przód"})
+        back = _link(channel, "LP-1", color="green", position=1)
+
+        options = enrichment_adapter.list_pictures(subject_ref="LP-1", channel=channel.idx)
+
+        assert [option["ref"] for option in options] == [str(main.pk), str(back.pk), str(side.pk)]
+        assert [option["is_main"] for option in options] == [True, False, False]
+        assert options[0]["label"] == "Przód"
+        assert options[1]["label"] == "green.png"
+        assert options[0]["url"] == main.picture.image.url
+
+    def test_a_picture_linked_twice_is_listed_once(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="LP-2")
+        first = _link(channel, "LP-2", color="red", role="main")
+        product_picture_service.link_picture_to_product(channel.idx, "LP-2", first.picture.pk, position=3)
+
+        options = enrichment_adapter.list_pictures(subject_ref="LP-2", channel=channel.idx)
+
+        assert [option["ref"] for option in options] == [str(first.pk)]
+
+    def test_no_pictures_is_empty(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="LP-3")
+
+        assert enrichment_adapter.list_pictures(subject_ref="LP-3", channel=channel.idx) == []
+
+    def test_unknown_product_raises(self):
+        channel = ChannelFactory(is_default=True)
+
+        with pytest.raises(ObjectDoesNotExist):
+            enrichment_adapter.list_pictures(subject_ref="NOPE", channel=channel.idx)
+
+
+@pytest.mark.django_db
+class TestPicture:
+    def test_returns_the_chosen_pictures_bytes(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="PC-1")
+        _link(channel, "PC-1", color="red", role="main")
+        side = _link(channel, "PC-1", color="blue", position=1)
+
+        data, mime = enrichment_adapter.picture(subject_ref="PC-1", channel=channel.idx, picture_ref=str(side.pk))
+
+        assert mime == "image/png"
+        with Image.open(io.BytesIO(data)) as image:
+            assert image.getpixel((0, 0)) == (0, 0, 255)
+
+    def test_a_foreign_picture_is_refused(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="PC-2")
+        _make_bare_product(channel=channel, sku="PC-3")
+        foreign = _link(channel, "PC-3", color="red", role="main")
+
+        with pytest.raises(LookupError):
+            enrichment_adapter.picture(subject_ref="PC-2", channel=channel.idx, picture_ref=str(foreign.pk))
+
+    @pytest.mark.parametrize("ref", ["999999", "abc", ""])
+    def test_an_unknown_ref_is_refused(self, ref):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="PC-4")
+
+        with pytest.raises(LookupError):
+            enrichment_adapter.picture(subject_ref="PC-4", channel=channel.idx, picture_ref=ref)
+
+
 @pytest.mark.django_db
 class TestVideo:
     def _read(self, channel, sku):

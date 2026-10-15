@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Enrichment adapter: `list_pictures(subject_ref, channel)` (`[{ref, label, url, is_main}]`, main first, a picture
+  linked twice listed once) and `picture(subject_ref, channel, picture_ref)` (`(bytes, mime)`; a ref that is not the
+  product's → `LookupError`) — the AI studio animates a chosen picture in a video.
 - Enrichment adapter: `subject_labels(refs, channel)` — `{sku: name}` of the SKUs that exist in the channel (name in
   the channel main language, else any; unknown SKUs left out) in two queries, for the enrichment `subjects/resolve/`
   endpoint (pasted SKUs in the AI studio).
