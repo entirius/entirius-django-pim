@@ -122,6 +122,7 @@ from ..settings import (
     DESCRIPTION_FEATURE_IDXS,
     SEO_FEATURE_IDXS,
     SYSTEM_FEATURE_CANONICAL_URL_IDX,
+    SYSTEM_FEATURE_NAME_IDX,
     SYSTEM_FEATURE_OG_IMAGE_IDX,
     SYSTEM_FEATURE_URL_KEY_IDX,
 )
@@ -788,7 +789,8 @@ _NUMERIC_TYPES = frozenset(
 def build_context(*, subject_ref: str, channel: str, language: str) -> dict:
     """Compact, JSON-safe product facts for an AI prompt — read-only, constant query count.
 
-    Text values are taken in `language`, falling back to the channel's main language. Long texts are
+    Text values are taken in `language`, falling back to the channel's main language; the name — the
+    product's identity, also its label in review — then to any language it has. Long texts are
     stripped of markup, then capped (description, short description, category, every attribute value;
     at most 20 attributes).
     """
@@ -825,7 +827,10 @@ def _attribute_text(row: ProductAttribute, langs: tuple[str, str]) -> str:
     """One attribute row as plain text; JSON/datetime/unknown types are skipped ("")."""
     feature_type = row.feature.feature_type
     if feature_type in _T9N_TEXT_TYPES:
-        return _first_language(row.value_txt_t9n, langs)
+        text = _first_language(row.value_txt_t9n, langs)
+        if not text and row.feature.idx == SYSTEM_FEATURE_NAME_IDX:
+            text = _first_language(row.value_txt_t9n, tuple(row.value_txt_t9n or {}))  # any language beats none
+        return text
     if feature_type in (FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT):
         return _first_language(row.attribute.name_t9n, langs) if row.attribute else ""
     if feature_type in (FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT):

@@ -178,7 +178,8 @@ restores the inherited state the snapshot recorded.
 ## Prompt context (`build_context`)
 
 `{sku, name, brand, category, attributes: {feature_idx: text}, description, short_description}`.
-Values come in `language` and fall back to the channel's main language. Select attributes resolve
+Values come in `language` and fall back to the channel's main language; the name — the product's identity, also its
+label in review (the bus names a subject by it) — then to any language it has. Select attributes resolve
 to the option name (multiselect names joined with `, `); JSON and datetime features are skipped. Text is stripped of markup and HTML
 comments (no hidden prompt injection, no tags cut mid-way) before capping. Caps keep the payload
 around 4 KB: description 1200 chars, short description 300, other values (category included) 100,

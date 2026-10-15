@@ -1227,6 +1227,17 @@ class TestBuildContext:
         assert ctx["description"] == "Warm wool sock."  # no "de" → channel main language (en)
         assert ctx["short_description"] == ""
 
+    def test_name_in_any_language_beats_none(self):
+        channel = _en_channel()
+        product = _make_bare_product(channel=channel, sku="CTX-2")
+        _set_text(product, "name", {"fr": "Chaussette"}, feature_type=FeatureTypeEnum.VARCHAR255_T9N)
+        _set_text(product, "description", {"fr": "Chaude."})
+
+        ctx = enrichment_adapter.build_context(subject_ref="CTX-2", channel=channel.idx, language="de")
+
+        assert ctx["name"] == "Chaussette"  # the product's identity: neither de nor en, still named
+        assert ctx["description"] == ""  # other texts stay in the run's or the channel's language
+
     def test_brand_category_and_attributes(self):
         channel, product = self._product()
         brand = FeatureFactory(idx="brand", feature_type=FeatureTypeEnum.SELECT, scope=models.FeatureScopeEnum.SYSTEM)
