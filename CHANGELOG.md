@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Enrichment adapter: `subject_labels(refs, channel)` — `{sku: name}` of the SKUs that exist in the channel (name in
+  the channel main language, else any; unknown SKUs left out) in two queries, for the enrichment `subjects/resolve/`
+  endpoint (pasted SKUs in the AI studio).
 - Enrichment adapter: field catalog for the AI studio — `describe_fields(channel, language)` lists the writable
   T9N text (`text` / `html`, `max_length` 255 for VARCHAR255_T9N) and select/multiselect features with labels in
   the language (fallback: channel main language) and at most 200 options (`options_truncated`), in three queries;

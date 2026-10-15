@@ -113,6 +113,7 @@ from ..models import (
     GapFinding,
     Picture,
     PictureRoleEnum,
+    Product,
     ProductAttribute,
     ProductFile,
     ProductInCategory,
@@ -940,6 +941,23 @@ def channel_languages(*, channel: str) -> list[str]:
     main = record.default_language.iso2.lower()
     others = {iso2.lower() for iso2 in record.languages.values_list("iso2", flat=True)} - {main}
     return [main, *sorted(others)]
+
+
+def subject_labels(*, refs: list[str], channel: str) -> dict[str, str]:
+    """`{sku: name}` of the `refs` that exist in the channel (unknown SKUs are left out) — two queries.
+
+    The name in the channel's main language, else any language it has; "" when the product has no name. An unknown
+    channel raises `Channel.DoesNotExist`.
+    """
+    record = _get_channel(channel)
+    skus = dict(Product.objects.filter(shop=record, real_product__sku__in=refs).values_list("pk", "real_product__sku"))
+    labels = dict.fromkeys(skus.values(), "")
+    names = ProductAttribute.objects.filter(product_id__in=skus, feature__idx=SYSTEM_FEATURE_NAME_IDX)
+    main = (record.default_language.iso2.lower(),)
+    for product_id, t9n in names.values_list("product_id", "value_txt_t9n"):
+        name = _first_language(t9n, main) or _first_language(t9n, tuple(t9n or {}))
+        labels[skus[product_id]] = _cap(name, _CONTEXT_VALUE_CAP)
+    return labels
 
 
 def make_locator(*, field_key: str, channel: str, language: str | None) -> dict:

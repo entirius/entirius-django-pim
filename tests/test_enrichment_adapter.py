@@ -1787,3 +1787,30 @@ class TestSelectValues:
         ctx = enrichment_adapter.build_context(subject_ref="SEL-CTX", channel=channel.idx, language="de")
 
         assert ctx["attributes"]["enr_color"] == "Red, Blue"
+
+
+@pytest.mark.django_db
+class TestSubjectLabels:
+    def test_known_skus_with_their_name_unknown_left_out(self):
+        channel = _en_channel()
+        sock = _make_bare_product(channel=channel, sku="LBL-1")
+        _set_text(sock, "name", {"de": "Socke", "en": "Sock"}, feature_type=FeatureTypeEnum.VARCHAR255_T9N)
+        _make_bare_product(channel=channel, sku="LBL-2")  # no name
+
+        labels = enrichment_adapter.subject_labels(refs=["LBL-1", "LBL-2", "NOPE"], channel=channel.idx)
+
+        assert labels == {"LBL-1": "Sock", "LBL-2": ""}
+
+    def test_name_in_any_language_and_other_channels_ignored(self):
+        channel = _en_channel()
+        product = _make_bare_product(channel=channel, sku="LBL-3")
+        _set_text(product, "name", {"fr": "Chaussette"}, feature_type=FeatureTypeEnum.VARCHAR255_T9N)
+        _make_bare_product(channel=ChannelFactory(), sku="LBL-4")
+
+        labels = enrichment_adapter.subject_labels(refs=["LBL-3", "LBL-4"], channel=channel.idx)
+
+        assert labels == {"LBL-3": "Chaussette"}
+
+    def test_unknown_channel_raises(self):
+        with pytest.raises(ObjectDoesNotExist):
+            enrichment_adapter.subject_labels(refs=["X"], channel="nope")
