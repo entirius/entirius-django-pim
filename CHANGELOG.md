@@ -25,6 +25,12 @@
   `tests/test_enrichment_conformance.py` skips unless it is installed by hand
   (`uv pip install -e ../entirius-django-enrichment`); `entirius-django-enrichment>=2.3.0` joins the `test`
   extra once released.
+- Enrichment adapter: `category_of(subject_ref, channel=None)` returns the product's first category (by
+  `position`, `pk`) as the memory ref `category:<idx>`, so a category SEO brief is reused by the other products of
+  that category.
+- Enrichment adapter: `apply` refuses `attribute_value` proposals for `url_key`, `canonical_url` and `og_image`
+  (`ValueError`, nothing written) whatever built the locator — previously only the catalog and `make_locator`
+  kept them out; `revert` can still restore a snapshot.
 
 ## 3.4.0 — 2026-10-12
 

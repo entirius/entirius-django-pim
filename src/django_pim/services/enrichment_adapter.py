@@ -42,7 +42,8 @@ gone after apply, so the snapshot diff is the only record of what this proposal 
 
 Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
 `main_picture` (bytes + mime of the main picture, input for the video kind) and the field catalog
-`describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features).
+`describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features),
+and `category_of` (the product's first category as a memory ref, so category-scoped SEO briefs are shared).
 
 Classification (`target_kind == "feature_set"`, etap-02): the FIRST classification gap — the AI
 resolves it by picking an existing PIM entity (a `FeatureSet` idx from `GET feature-sets/`), not by
@@ -114,6 +115,7 @@ from ..models import (
     PictureRoleEnum,
     ProductAttribute,
     ProductFile,
+    ProductInCategory,
     ProductPicture,
 )
 from ..settings import (
@@ -150,6 +152,9 @@ _SEO_TEXT_SHAPE = ("text", 255, True)
 _NON_WRITABLE_IDXS = frozenset(
     {SYSTEM_FEATURE_URL_KEY_IDX, SYSTEM_FEATURE_CANONICAL_URL_IDX, SYSTEM_FEATURE_OG_IMAGE_IDX}
 )
+
+# Namespace of `category_of` refs: memory entries share `subject_module="pim"` with SKUs.
+_CATEGORY_REF_PREFIX = "category:"
 
 # list_products kwargs an external scope may drive. Anything else in `filters` is ignored rather
 # than passed through (avoids a worker injecting arbitrary kwargs).
@@ -245,6 +250,7 @@ def apply(proposal) -> None:
             alts=alts,
         )
         return
+    _reject_non_writable(proposal.target_locator)
     _reject_inherited_select_clear(
         proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value
     )
@@ -540,6 +546,15 @@ def _require_applicable(product, feature: Feature, subject_ref: str) -> None:
         return
     if not FeatureInFeatureSet.objects.filter(feature_set_id=product.feature_set_id, feature=feature).exists():
         raise ValueError(f"feature {feature.idx!r} is not in the feature set of {subject_ref!r}")
+
+
+def _reject_non_writable(target_locator: dict) -> None:
+    """Apply-only guard: route/SEO system fields stay out of reach of any proposal, however it was built
+    (`make_locator` refuses them too, but a posted proposal or a legacy `field` locator bypasses it).
+    Revert stays open so a snapshot taken before this guard can still be restored."""
+    _channel_idx, _language, feature_idx = _locator(target_locator)
+    if feature_idx in _NON_WRITABLE_IDXS:
+        raise ValueError(f"feature {feature_idx!r} is not a writable field (system route/SEO field)")
 
 
 def _reject_inherited_select_clear(target_locator: dict, *, subject_ref: str, value: dict) -> None:
@@ -946,6 +961,19 @@ def field_key(*, locator: dict) -> str | None:
     catalog meta. Without this extra the bus falls back to `locator["field"]`, which PIM locators never carry.
     """
     return locator.get("feature_idx")
+
+
+def category_of(subject_ref: str, *, channel: str | None = None) -> str | None:
+    """Memory ref of the product's first category by `(position, pk)`: `"category:<idx>"`, None without one.
+
+    The prefix keeps the ref apart from SKUs under the same `subject_module`. `channel` narrows to that
+    channel's product; without it the first link across every channel carrying the SKU wins.
+    """
+    links = ProductInCategory.objects.filter(product__real_product__sku=subject_ref)
+    if channel:
+        links = links.filter(product__shop__idx=channel)
+    idx = links.order_by("position", "pk").values_list("category__idx", flat=True).first()
+    return f"{_CATEGORY_REF_PREFIX}{idx}" if idx else None
 
 
 def resolve_targets(scope_spec: dict, page: int = 1) -> list:

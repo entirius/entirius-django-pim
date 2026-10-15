@@ -491,6 +491,79 @@ class TestCategory:
 
 
 @pytest.mark.django_db
+class TestCategoryOf:
+    def test_first_category_by_position_as_a_namespaced_ref(self):
+        channel = ChannelFactory(is_default=True)
+        product = _make_bare_product(channel=channel, sku="CO-1")
+        ProductInCategoryFactory(
+            product=product, category=ProductCategoryFactory(shop=channel, idx="cat-b"), position=2
+        )
+        ProductInCategoryFactory(
+            product=product, category=ProductCategoryFactory(shop=channel, idx="cat-a"), position=1
+        )
+
+        assert enrichment_adapter.category_of("CO-1", channel=channel.idx) == "category:cat-a"
+
+    def test_channel_picks_that_channels_product(self):
+        main, other = ChannelFactory(is_default=True), ChannelFactory()
+        for channel, idx in ((main, "cat-main"), (other, "cat-other")):
+            product = ProductFactory(shop=channel, real_product=RealProductFactory(sku=f"CO-2-{idx}"))
+            ProductInCategoryFactory(product=product, category=ProductCategoryFactory(shop=channel, idx=idx))
+
+        assert enrichment_adapter.category_of("CO-2-cat-other", channel=other.idx) == "category:cat-other"
+        assert enrichment_adapter.category_of("CO-2-cat-other", channel=main.idx) is None
+
+    def test_none_without_category_or_product(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="CO-3")
+
+        assert enrichment_adapter.category_of("CO-3", channel=channel.idx) is None
+        assert enrichment_adapter.category_of("NOPE") is None
+
+
+@pytest.mark.django_db
+class TestNonWritableApply:
+    def _canonical_product(self, sku):
+        channel = ChannelFactory(is_default=True)
+        product = _make_bare_product(channel=channel, sku=sku)
+        feature, _ = models.Feature.objects.get_or_create(
+            idx="canonical_url",
+            defaults={"feature_type": FeatureTypeEnum.VARCHAR255_T9N, "scope": models.FeatureScopeEnum.SYSTEM},
+        )
+        ProductAttribute.objects.create(product=product, feature=feature, value_txt_t9n={"pl": "/stary"})
+        return channel, product
+
+    def test_apply_to_canonical_url_raises_and_writes_nothing(self):
+        channel, product = self._canonical_product("NW-1")
+        proposal = _Proposal(
+            subject_ref="NW-1",
+            target_locator=_locator(channel, "pl", feature_idx="canonical_url"),
+            proposed_value={"text": "https://evil.example/"},
+        )
+
+        with pytest.raises(ValueError, match="not a writable field"):
+            enrichment_adapter.apply(proposal)
+
+        assert ProductAttribute.objects.get(product=product, feature__idx="canonical_url").value_txt_t9n == {
+            "pl": "/stary"
+        }
+
+    def test_revert_may_restore_a_snapshot(self):
+        channel, product = self._canonical_product("NW-2")
+        proposal = _Proposal(
+            subject_ref="NW-2",
+            target_locator=_locator(channel, "pl", feature_idx="canonical_url"),
+            current_snapshot={"text": "/przed"},
+        )
+
+        enrichment_adapter.revert(proposal)
+
+        assert ProductAttribute.objects.get(product=product, feature__idx="canonical_url").value_txt_t9n == {
+            "pl": "/przed"
+        }
+
+
+@pytest.mark.django_db
 class TestFindGaps:
     def _rule(self, key="desc-rule", **kwargs):
         defaults = {

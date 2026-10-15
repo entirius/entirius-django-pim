@@ -32,6 +32,7 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `channel_languages(*, channel)` | READ, optional | Lowercase iso2 languages of the channel, main first |
 | `make_locator(*, field_key, channel, language)` | READ, optional | `attribute_value` locator for a catalog field |
 | `field_key(*, locator)` | READ, optional | Inverse of `make_locator`: the catalog key (`feature_idx`) of a locator |
+| `category_of(subject_ref, *, channel=None)` | READ, optional | Memory ref `category:<idx>` of the first category by `(position, pk)`; None without one |
 
 ## Locator / value convention
 
@@ -143,7 +144,9 @@ The AI studio builds its field pickers, prompts and response schemas from this c
   the channel only picks the label language. Scalar, JSON and datetime features are not writable here.
 - SEO text (`is_seo` or `meta_title` / `meta_description`) is `text` with `max_length` 255 whatever its storage
   type — it lands in meta tags, so no markup and a cap. `url_key`, `canonical_url` and `og_image` drive routes
-  and SEO, not content: they are never listed, and `make_locator` rejects them.
+  and SEO, not content: they are never listed, `make_locator` rejects them, and `apply` refuses any
+  `attribute_value` proposal that names them (`ValueError`, nothing written), whoever built the locator; `revert`
+  may still restore a snapshot.
 - Labels in `language`, then the channel's main language, then the idx. `language=""` = main language.
 - Options ordered by `display_order`, `idx`; at most 200 per field (a window function caps them in SQL) with
   `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
@@ -152,6 +155,9 @@ The AI studio builds its field pickers, prompts and response schemas from this c
 - `field_key(locator=...)` returns `locator.get("feature_idx")` — None for `picture_alt` and `video` locators,
   which carry no catalog field (the bus then revises without catalog meta). Without it the bus falls back to
   `locator["field"]`, which PIM locators never carry, so corrections would run without the field's catalog entry.
+- `category_of` lets category-scoped memory (SEO briefs) be shared by the products of one category. The ref is
+  `category:<idx>` so it cannot collide with a SKU under the same `subject_module`; `channel` picks that channel's
+  product, without it the first link across channels carrying the SKU wins.
 - Conformance: `tests/test_enrichment_conformance.py` runs the enrichment adapter conformance kit for text, select,
   multiselect and video targets (video through a small bus stand-in that stages the binary and records
   `applied_snapshot`, as `apply_service` does). Until the kit ships in an enrichment release the module skips
