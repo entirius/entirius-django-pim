@@ -1353,6 +1353,17 @@ class TestListPictures:
 
         assert [option["ref"] for option in options] == [str(first.pk)]
 
+    def test_one_main_when_several_links_are_main(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="LP-4")
+        _link(channel, "LP-4", color="red", role="main", position=0)
+        _link(channel, "LP-4", color="blue", role="main", position=1)
+
+        options = enrichment_adapter.list_pictures(subject_ref="LP-4", channel=channel.idx)
+
+        assert [option["is_main"] for option in options].count(True) == 1
+        assert options[0]["is_main"]
+
     def test_no_pictures_is_empty(self):
         channel = ChannelFactory(is_default=True)
         _make_bare_product(channel=channel, sku="LP-3")

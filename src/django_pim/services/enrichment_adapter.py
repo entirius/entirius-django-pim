@@ -778,29 +778,31 @@ def list_pictures(*, subject_ref: str, channel: str) -> list[dict]:
     """`[{ref, label, url, is_main}]` of the product's pictures — main first, then by position — for choosing
     the picture a video animates. `ref` is the product-picture link pk (what `picture` takes); the label is its
     alt text in the channel's main language, else the original file name. A picture linked twice is listed once.
+    `is_main` marks the one link `main_picture` reads (a product with several MAIN links has still one main).
 
     An unknown product or channel raises `ObjectDoesNotExist`.
     """
     product = product_service.get_product_by_sku(channel, subject_ref)
-    main = (product.shop.default_language.iso2.lower(),)
+    langs = (product.shop.default_language.iso2.lower(),)
+    main = product.main_product_picture
     links = product.pictures.select_related("picture").order_by("position", "pk")
     seen: set[int] = set()
     options = []
-    for link in links:
+    for link in sorted(links, key=lambda link: link != main):
         if link.picture_id in seen or not link.picture.image:
             continue
         seen.add(link.picture_id)
-        options.append(_picture_option(link, main))
-    return sorted(options, key=lambda option: not option["is_main"])
+        options.append(_picture_option(link, langs, is_main=link == main))
+    return options
 
 
-def _picture_option(link: ProductPicture, langs: tuple[str]) -> dict:
+def _picture_option(link: ProductPicture, langs: tuple[str], *, is_main: bool) -> dict:
     picture = link.picture
     return {
         "ref": str(link.pk),
         "label": _first_language(link.alt_text_t9n, langs) or picture.original_file_name or "",
         "url": picture.image.url,
-        "is_main": link.picture_role == PictureRoleEnum.MAIN,
+        "is_main": is_main,
     }
 
 
