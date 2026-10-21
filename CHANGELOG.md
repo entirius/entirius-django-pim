@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 3.5.0rc1 — 2026-10-16
 - Enrichment adapter: derived pictures (the AI image worker) — `apply_modes(target_kind, target_locator)` offers
   `add` / `replace` for a picture whose locator names its source picture; `add` links the new file as a gallery
   picture after the others (undo removes the link), `replace` swaps the source picture's file in place (undo puts
