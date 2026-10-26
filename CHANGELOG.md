@@ -1,11 +1,14 @@
 # Changelog
 
 ## Unreleased
+
+## 3.5.0rc2 — 2026-10-26
 - Access: attribute values are their own area, `pim.attribute_values` (entirius-django-access 1.1.0): the
   `attributes/` admin routes need it instead of `pim.schema`, so an integration can add a value (a new brand option)
   without the right to change features, feature sets or channels. Built-in roles keep their rights; access migration
-  `0007` gives every custom role holding `pim.schema` the same level on the new area. Needs
-  `entirius-django-access>=1.1.0` (the area must be in the access defaults the ownership test compares with).
+  `0007` gives every custom role holding `pim.schema` the same level on the new area. Run it with
+  `entirius-django-access>=1.1.0`: with 1.0.x the Editor role only reads `attributes/` and custom roles get no right
+  on it (no migration `0007`); PIM does not depend on access, so the service lock pairs them.
 
 ## 3.5.0rc1 — 2026-10-16
 - Enrichment adapter: derived pictures (the AI image worker) — `apply_modes(target_kind, target_locator)` offers
