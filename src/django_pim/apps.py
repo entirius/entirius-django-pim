@@ -16,6 +16,7 @@ class DjangoPimConfig(AppConfig):
         {"key": "pim.products", "label": "Products and media"},
         {"key": "pim.categories", "label": "Categories and positions"},
         {"key": "pim.schema", "label": "Features, attributes, sets and link types"},
+        {"key": "pim.attribute_values", "label": "Attribute values"},
         {"key": "pim.quality", "label": "Quality gaps"},
         {
             "key": "pim.product_delete",
