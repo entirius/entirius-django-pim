@@ -820,6 +820,57 @@ class TestPagination:
         assert len(data["results"]) <= 100
 
 
+@pytest.mark.django_db
+class TestPaginationErrors:
+    """Bad page / page_size answer 4xx in the v2 envelope, never 500 (issue #24)."""
+
+    @pytest.fixture(autouse=True)
+    def v2_exception_handler(self, settings):
+        settings.REST_FRAMEWORK = {
+            **settings.REST_FRAMEWORK,
+            "EXCEPTION_HANDLER": "django_utils.api.v2_errors.v2_exception_handler",
+        }
+
+    @pytest.fixture
+    def product(self, shop):
+        from tests.factories import ProductFactory
+
+        return ProductFactory(shop=shop)
+
+    @pytest.mark.parametrize("page", ["0", "999", "abc"])
+    def test_page_out_of_range_is_404(self, authenticated_client, shop, product, page):
+        response = authenticated_client.get(f"/api/pim/admin/{shop.idx}/products/?page={page}")
+
+        assert response.status_code == 404
+        assert response.json()["error"] == "NOT_FOUND"
+
+    @pytest.mark.parametrize("page_size", ["abc", "0", "-5", "1.5"])
+    def test_invalid_page_size_is_400(self, authenticated_client, shop, product, page_size):
+        response = authenticated_client.get(f"/api/pim/admin/{shop.idx}/products/?page_size={page_size}")
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"] == "VALIDATION_ERROR"
+        assert [d["field"] for d in body["details"]] == ["page_size"]
+
+    def test_valid_page_size_reaches_next_link(self, authenticated_client, shop):
+        from tests.factories import ProductFactory
+
+        for _ in range(3):
+            ProductFactory(shop=shop)
+
+        response = authenticated_client.get(f"/api/pim/admin/{shop.idx}/products/?page_size=2")
+
+        assert response.status_code == 200
+        assert "page_size=2" in response.json()["next"]
+
+    def test_other_list_views_share_the_fix(self, authenticated_client, shop):
+        response = authenticated_client.get(f"/api/pim/admin/{shop.idx}/categories/?page=999")
+
+        assert response.status_code == 404
+        assert response.json()["error"] == "NOT_FOUND"
+
+
 # ============================================================================
 # Error Handling Tests
 # ============================================================================

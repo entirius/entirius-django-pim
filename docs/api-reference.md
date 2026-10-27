@@ -9,7 +9,7 @@ Full surface documentation for the PIM Admin API. Covers endpoint routes, query 
 
 **Authentication:** All endpoints require `JWTAuthentication` + `IsAdminUser` (`is_staff=True` or `is_superuser=True`). Pass token in header: `Authorization: Bearer <token>`.
 
-**Pagination:** `AdminPageNumberPagination` -- `page_size=20`, `max_page_size=100`, `page_size_query_param="page_size"`, `page_query_param="page"`.
+**Pagination:** `AdminPageNumberPagination` -- `page_size=20`, `max_page_size=100`, `page_size_query_param="page_size"`, `page_query_param="page"`. A page out of range (`page=0`, past the last page, not a number) answers 404 `NOT_FOUND`; a `page_size` that is not a positive integer answers 400 `VALIDATION_ERROR` on `page_size`; a larger one is capped at 100.
 
 ---
 

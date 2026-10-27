@@ -3,6 +3,9 @@
 ## Unreleased
 
 ## 3.5.0rc2 — 2026-10-26
+- Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
+  instead of 500, in every admin list view; a `page_size` that is not a positive integer answers 400
+  `VALIDATION_ERROR` instead of falling back and staying in the `next` link (#24).
 - Access: attribute values are their own area, `pim.attribute_values` (entirius-django-access 1.1.0): the
   `attributes/` admin routes need it instead of `pim.schema`, so an integration can add a value (a new brand option)
   without the right to change features, feature sets or channels. Built-in roles keep their rights; access migration
