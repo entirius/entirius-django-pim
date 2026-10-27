@@ -26,6 +26,16 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `read_current(*, subject_ref, target_kind, target_locator)` | READ | Authoritative current value → drift / diff / undo snapshot |
 | `apply(proposal)` | WRITE | Write `proposed_value` into PIM (the only enrichment→PIM write site) |
 | `revert(proposal)` | WRITE | Restore `current_snapshot` (single-level undo) |
+| `build_context(*, subject_ref, channel, language)` | READ, optional | Compact prompt context — see below |
+| `main_picture(*, subject_ref, channel)` | READ, optional | `(bytes, mime)` of the main picture; `ValueError` if none |
+| `list_pictures(*, subject_ref, channel)` | READ, optional | `[{ref, label, url, is_main}]` of the product's pictures, main first then by position; `ref` = product-picture link pk, label = alt in the channel main language, else the file name |
+| `picture(*, subject_ref, channel, picture_ref)` | READ, optional | `(bytes, mime)` of one picture by `list_pictures` ref; `LookupError` when it is not this product's |
+| `apply_modes(*, target_kind, target_locator)` | READ, optional | `["add", "replace"]` for a derived picture (locator has `source_picture_ref`), `[]` otherwise (video: add only) |
+| `describe_fields(*, channel, language="")` | READ, optional | Field catalog — see below |
+| `channel_languages(*, channel)` | READ, optional | Lowercase iso2 languages of the channel, main first |
+| `make_locator(*, field_key, channel, language)` | READ, optional | `attribute_value` locator for a catalog field |
+| `field_key(*, locator)` | READ, optional | Inverse of `make_locator`: the catalog key (`feature_idx`) of a locator |
+| `category_of(subject_ref, *, channel=None)` | READ, optional | Memory ref `category:<idx>` of the first category by `(position, pk)`; None without one |
 
 ## Locator / value convention
 
@@ -33,14 +43,17 @@ The bus treats these as opaque — only this adapter reads them.
 
 - `subject_ref` = product SKU
 - `target_kind` = `"attribute_value"` (text) | `"picture"` (media) | `"feature_set"`
-  (classification) | `"picture_alt"` (alt texts)
+  (classification) | `"picture_alt"` (alt texts) | `"video"` (media)
 
 | target_kind | `target_locator` | `proposed_value` | `current_snapshot` |
 |-------------|------------------|------------------|--------------------|
 | `attribute_value` | `{"channel", "language", "feature_idx"}` | `{"text": <value for that language>}` | `{"text": <raw stored value, "" if absent>}` |
+| `attribute_value` (select) | `{"channel", "language": null, "feature_idx"}` | `{"option": <idx>}` / `{"options": [<idx>, ...]}` | `{"option": <idx, "" if none>}` / `{"options": [<sorted idxs>]}` |
 | `picture` | `{"channel"}` | `{"op": "replace_main", "alt_t9n": {...}}` | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none |
+| `picture` (derived) | `{"channel", "source_picture_ref", "operation", "variant"}` | `{"op": "derived", "operation", "preset", "variant", "of"}` | `{"ref", "sha1", "position", "alt_t9n", "url"}` of the source picture, `{}` if gone |
 | `feature_set` | `{"channel"}` | `{"featureset_idx": <idx of an existing FeatureSet>}` | `{"featureset_idx": <current idx, "" if product missing>}` |
 | `picture_alt` | `{"channel", "language"}` | `{"alts": {"<picture_pk>": <alt for that language>}}` | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures, `{"alts": {}}` if product missing |
+| `video` | `{"channel"}` | — (binary staged in the bus) | `{"files": [<stored names of linked VIDEO files>]}`, `{"files": []}` if product missing |
 
 Scope specs (`resolve_targets` / `find_gaps`):
 
@@ -109,6 +122,87 @@ the finding and the enrichment loop would respawn the candidate forever). A **re
 contrast, may restore `""` (a snapshotted empty state) and treats an empty snapshot
 (`{"alts": {}}` — no pictures at intake) as a no-op.
 
+## Derived picture writes (`op=derived`)
+
+The image worker's outputs are processed copies of one product picture (`source_picture_ref` = the
+product-picture link pk). The bus stores the operator's choice in `proposal.apply_mode`:
+
+- `add` (default, and every bulk accept): upload the staged file, link it as a `general` picture after the
+  product's last position, with the source's alt texts; `apply` returns `{"ref": <link pk>}` (the bus keeps it in
+  `result_ref`) and `revert` deletes that link.
+- `replace`: swap the file of the source link in place (role, position, alt texts stay); the old `Picture` stays
+  in the pool as the undo anchor (`current_snapshot.sha1`), `revert` puts it back, `release_undo_anchor` GCs it
+  once retention expires. A source removed before apply → `ValueError` (add instead).
+
+## Video writes (`target_kind=video`)
+
+`apply` reads the staged binary via `proposal.open_staged_file()`, uploads it through
+`product_file_service.upload_file` (type VIDEO, SHA1 dedup, label = product name in the channel's
+main language) and links it with `link_file_to_product`. The bus drops the staged copy after
+apply, so `revert` unlinks the files listed in `applied_snapshot` but not in `current_snapshot`.
+The `Files` row stays; only the link goes. An empty diff raises `ValueError` — apply always adds
+one link, so a silent no-op would mark the proposal reverted while the video stays live. Apply
+raises too when SHA1 dedup returns an existing non-VIDEO row (it would never show up in the
+snapshots, so revert could not unlink it).
+
+## Field catalog (`describe_fields`)
+
+The AI studio builds its field pickers, prompts and response schemas from this catalog:
+
+```jsonc
+{"key": "<feature idx>", "label": "<name in language>", "type": "text|html|select|multiselect",
+ "max_length": 255 | null, "translatable": true | false,
+ "options": [{"value": "<attribute idx>", "label": "<name>"}], "options_truncated": false}  // selects only
+```
+
+- Fields = every feature of type VARCHAR255_T9N (`text`, `max_length` 255), TEXT_T9N (`html` — the CMS edits it
+  with the wysiwyg editor) and SELECT / MULTISELECT. PIM features are global, so all channels see the same list;
+  the channel only picks the label language. Scalar, JSON and datetime features are not writable here.
+- SEO text (`is_seo` or `meta_title` / `meta_description`) is `text` with `max_length` 255 whatever its storage
+  type — it lands in meta tags, so no markup and a cap. `url_key`, `canonical_url` and `og_image` drive routes
+  and SEO, not content: they are never listed, `make_locator` rejects them, and `apply` refuses any
+  `attribute_value` proposal that names them (`ValueError`, nothing written), whoever built the locator; `revert`
+  may still restore a snapshot.
+- Labels in `language`, then the channel's main language, then the idx. `language=""` = main language.
+- Options ordered by `display_order`, `idx`; at most 200 per field (a window function caps them in SQL) with
+  `options_truncated`. Three queries whatever the catalogue holds: channel, features, options.
+- `make_locator` returns `{channel, language, feature_idx}` — `language` lowercased for text, `None` for selects;
+  unknown or non-writable field, or a text field without a language → `ValueError`.
+- `field_key(locator=...)` returns `locator.get("feature_idx")` — None for `picture_alt` and `video` locators,
+  which carry no catalog field (the bus then revises without catalog meta). Without it the bus falls back to
+  `locator["field"]`, which PIM locators never carry, so corrections would run without the field's catalog entry.
+- `category_of` lets category-scoped memory (SEO briefs) be shared by the products of one category. The ref is
+  `category:<idx>` so it cannot collide with a SKU under the same `subject_module`; `channel` picks that channel's
+  product, without it the first link across channels carrying the SKU wins.
+- Conformance: `tests/test_enrichment_conformance.py` runs the enrichment adapter conformance kit for text, select,
+  multiselect and video targets (video through a small bus stand-in that stages the binary and records
+  `applied_snapshot`, as `apply_service` does). Until the kit ships in an enrichment release the module skips
+  unless the kit is installed by hand: `uv pip install -e ../entirius-django-enrichment`.
+
+## Select writes (`attribute_value` on SELECT / MULTISELECT)
+
+`read_current` returns the chosen option idxs (multiselect sorted, so drift ignores row order).
+`apply` / `revert` validate the value shape (`{"option": str}` for SELECT, `{"options": [str]}` for MULTISELECT)
+and every idx against the feature's options — an unknown idx or one of another feature raises `ValueError` before
+anything is written. `""` / `[]` clears the feature (that is how revert restores "no value"). The write goes
+through `product_service.update_product` (`attribute_idx` / `attribute_idxs`); on an inheriting secondary channel
+every row is marked `overridden_langs=["*"]`, the marker `inheritance_service` uses for language-neutral values.
+A cleared select on an inheriting channel would leave no row to mark (the next materialisation would refill it),
+so `apply` refuses it with `ValueError` — disable attribute inheritance first. `revert` may clear it: the refill
+restores the inherited state the snapshot recorded.
+
+## Prompt context (`build_context`)
+
+`{sku, name, brand, category, attributes: {feature_idx: text}, description, short_description}`.
+Values come in `language` and fall back to the channel's main language; the name — the product's identity, also its
+label in review (the bus names a subject by it) — then to any language it has. Select attributes resolve
+to the option name (multiselect names joined with `, `); JSON and datetime features are skipped. Text is stripped of markup and HTML
+comments (no hidden prompt injection, no tags cut mid-way) before capping. Caps keep the payload
+around 4 KB: description 1200 chars, short description 300, other values (category included) 100,
+at most 20 attributes. It runs
+for every product and language, so the query count is constant (5): channel, product, main language,
+attributes, first category.
+
 ## find_gaps
 
 `check` = a `GapDefinition.key`; unknown → `ValueError` (the bus surfaces it as a 400).
@@ -144,15 +238,17 @@ that contract lives bus-side (`django-enrichment` `docs/spawn-surfaces.md` § Ga
 
 ## Scope limits
 
-- Text only: `apply`/`revert` raise `ValueError` for non-`*_T9N` features (a t9n payload sent to a
-  scalar feature would otherwise be silently dropped by `_set_product_attributes`).
+- `attribute_value` writes `*_T9N` text and select/multiselect options only: `apply`/`revert` raise `ValueError`
+  for other features (a t9n payload sent to a scalar feature would otherwise be silently dropped by
+  `_set_product_attributes`).
 - Mass async apply is not part of this adapter.
 
 ## Tests
 
 `tests/test_enrichment_adapter.py` — read-merge-write (sibling languages preserved), override on an
 inheriting secondary channel vs none on the default channel, `revert`, `resolve_targets`
-filter/list, non-t9n rejection. Run inside Docker:
+filter/list, non-t9n rejection, field catalog (shapes, label fallback, option cap, query count), select and
+multiselect read/apply/revert and option validation. Run inside Docker:
 
 ```bash
 PIM_TEST_DB_HOST=db python -m pytest tests/test_enrichment_adapter.py -q

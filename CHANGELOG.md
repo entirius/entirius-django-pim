@@ -1,5 +1,55 @@
 # Changelog
 
+## 3.5.0 — 2026-10-27
+- Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
+  instead of 500, in every admin list view; a `page_size` that is not a positive integer answers 400
+  `VALIDATION_ERROR` instead of falling back and staying in the `next` link (#24).
+- Access: attribute values are their own area, `pim.attribute_values` (entirius-django-access 1.1.0): the
+  `attributes/` admin routes need it instead of `pim.schema`, so an integration can add a value (a new brand option)
+  without the right to change features, feature sets or channels. Built-in roles keep their rights; access migration
+  `0007` gives every custom role holding `pim.schema` the same level on the new area. Run it with
+  `entirius-django-access>=1.1.0`: with 1.0.x the Editor role only reads `attributes/` and custom roles get no right
+  on it (no migration `0007`); PIM does not depend on access, so the service lock pairs them.
+- Enrichment adapter: derived pictures (the AI image worker) — `apply_modes(target_kind, target_locator)` offers
+  `add` / `replace` for a picture whose locator names its source picture; `add` links the new file as a gallery
+  picture after the others (undo removes the link), `replace` swaps the source picture's file in place (undo puts
+  the old file back, the old `Picture` is the undo anchor). `apply` returns `{"ref"}` for an added link.
+- Enrichment adapter: `list_pictures(subject_ref, channel)` (`[{ref, label, url, is_main}]`, main first, a picture
+  linked twice listed once) and `picture(subject_ref, channel, picture_ref)` (`(bytes, mime)`; a ref that is not the
+  product's → `LookupError`) — the AI studio animates a chosen picture in a video.
+- Enrichment adapter: `subject_labels(refs, channel)` — `{sku: name}` of the SKUs that exist in the channel (name in
+  the channel main language, else any; unknown SKUs left out) in two queries, for the enrichment `subjects/resolve/`
+  endpoint (pasted SKUs in the AI studio).
+- Enrichment adapter: field catalog for the AI studio — `describe_fields(channel, language)` lists the writable
+  T9N text (`text` / `html`, `max_length` 255 for VARCHAR255_T9N) and select/multiselect features with labels in
+  the language (fallback: channel main language) and at most 200 options (`options_truncated`), in three queries;
+  `channel_languages(channel)` (main language first) and `make_locator(field_key, channel, language)` (language
+  `None` for selects).
+- Enrichment adapter: `attribute_value` reads, applies and reverts select (`{"option"}`) and multiselect
+  (`{"options"}`) values; option idxs are validated against the feature (unknown → `ValueError`, nothing
+  written), snapshots are sorted for drift checks, and writes on an inheriting secondary channel are marked
+  overridden (`"*"`).
+- Enrichment adapter: SEO text fields (`is_seo`, `meta_title`, `meta_description`) are catalogued as plain `text`
+  capped at 255; `url_key`, `canonical_url` and `og_image` are not writable (absent from the catalog,
+  `make_locator` raises); `apply` refuses to clear an inherited select on a secondary channel (the change would
+  be silently refilled by materialisation).
+- Enrichment adapter: `attribute_value` writes are refused (`ValueError`, nothing written) for a feature outside
+  the product's feature set (system features always apply) and for a translatable feature whose locator has no
+  language (the language is lowercased); the inherited-select guard and the `overridden_langs` marker follow the
+  materialisation rules (channel `inheritance_enabled`, feature `exclude_from_inheritance`).
+- Enrichment adapter: `field_key(locator)` (inverse of `make_locator`) so the bus finds the catalog entry of a
+  PIM locator (None for `picture_alt` and `video` locators); the adapter passes the enrichment adapter
+  conformance kit for text, select, multiselect and video targets. The kit is not released yet, so
+  `tests/test_enrichment_conformance.py` skips unless it is installed by hand
+  (`uv pip install -e ../entirius-django-enrichment`); `entirius-django-enrichment>=2.3.0` joins the `test`
+  extra once released.
+- Enrichment adapter: `category_of(subject_ref, channel=None)` returns the product's first category (by
+  `position`, `pk`) as the memory ref `category:<idx>`, so a category SEO brief is reused by the other products of
+  that category.
+- Enrichment adapter: `apply` refuses `attribute_value` proposals for `url_key`, `canonical_url` and `og_image`
+  (`ValueError`, nothing written) whatever built the locator — previously only the catalog and `make_locator`
+  kept them out; `revert` can still restore a snapshot.
+
 ## 3.4.0 — 2026-10-12
 
 - Access: the module declares its own access areas on its AppConfig and its admin views (copied from the
