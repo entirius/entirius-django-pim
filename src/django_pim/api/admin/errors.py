@@ -15,6 +15,7 @@ import uuid
 from django_utils.api.v2_errors import ErrorDetail, ErrorResponse
 from process_logger import ProcessLogger
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 
@@ -24,7 +25,14 @@ def not_found_response(detail: str) -> Response:
 
 
 def internal_error(exc: Exception) -> Response:
-    """Log exception with structured trace context; return opaque 500 response."""
+    """Log exception with structured trace context; return opaque 500 response.
+
+    A DRF ``APIException`` (e.g. ``NotFound`` for a page out of range) is not an
+    internal error: it is re-raised so the service exception handler answers it
+    with its own status in the v2 envelope.
+    """
+    if isinstance(exc, APIException):
+        raise exc
     error_id = uuid.uuid4().hex[:8]
 
     logger = ProcessLogger(process_name="api_error", module="admin_api")

@@ -45,7 +45,7 @@ class AttributeViewSet(viewsets.ViewSet):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
-    access_area = "pim.schema"
+    access_area = "pim.attribute_values"
 
     @extend_schema(
         summary="List attributes",
