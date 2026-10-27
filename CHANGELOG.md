@@ -1,7 +1,5 @@
 # Changelog
 
-## Unreleased
-
 ## 3.5.0rc2 — 2026-10-26
 - Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
   instead of 500, in every admin list view; a `page_size` that is not a positive integer answers 400
