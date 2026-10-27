@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.5.0rc2 — 2026-10-26
+## 3.5.0 — 2026-10-27
 - Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
   instead of 500, in every admin list view; a `page_size` that is not a positive integer answers 400
   `VALIDATION_ERROR` instead of falling back and staying in the `next` link (#24).
@@ -10,8 +10,6 @@
   `0007` gives every custom role holding `pim.schema` the same level on the new area. Run it with
   `entirius-django-access>=1.1.0`: with 1.0.x the Editor role only reads `attributes/` and custom roles get no right
   on it (no migration `0007`); PIM does not depend on access, so the service lock pairs them.
-
-## 3.5.0rc1 — 2026-10-16
 - Enrichment adapter: derived pictures (the AI image worker) — `apply_modes(target_kind, target_locator)` offers
   `add` / `replace` for a picture whose locator names its source picture; `add` links the new file as a gallery
   picture after the others (undo removes the link), `replace` swaps the source picture's file in place (undo puts

@@ -1,6 +1,6 @@
 [project]
 name = "entirius-django-pim"
-version = "3.5.0rc2"
+version = "3.5.0"
 description = "Product information module for Entirius: products, categories, features, attributes and media per sales channel"
 keywords = ["django", "pim", "product-catalog", "ecommerce", "headless", "entirius"]
 classifiers = [
