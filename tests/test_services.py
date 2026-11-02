@@ -399,6 +399,69 @@ def test_member_feature_is_evaluated(channel):
     assert _findings(product).count() == 1
 
 
+# --- required_only: applicability = the product's set requires the feature ----
+
+
+def _material_in_a_set(channel, *, is_required, feature_flag=False):
+    fs = FeatureSetFactory()
+    material = FeatureFactory(
+        idx="material",
+        feature_type=FeatureTypeEnum.VARCHAR255,
+        scope=FeatureScopeEnum.BUSINESS_UNIT,
+        is_required=feature_flag,
+    )
+    FeatureInFeatureSetFactory(feature_set=fs, feature=material, is_required=is_required)
+    GapDefinitionFactory(
+        key="mat", check_key=GapCheck.FEATURE_PRESENT, params={"feature_idx": "material", "required_only": True}
+    )
+    return _product(channel, feature_set=fs)
+
+
+def test_required_only_skips_a_member_the_set_does_not_require(channel):
+    product = _material_in_a_set(channel, is_required=False, feature_flag=True)  # the set's override wins
+
+    svc.detect_for_product(product)
+
+    assert _findings(product).count() == 0
+
+
+def test_required_only_evaluates_a_member_the_set_requires(channel):
+    product = _material_in_a_set(channel, is_required=True)
+
+    svc.detect_for_product(product)
+
+    assert _findings(product).count() == 1
+
+
+def test_required_only_follows_the_features_own_flag_without_an_override(channel):
+    required = _material_in_a_set(channel, is_required=None, feature_flag=True)
+
+    svc.detect_for_product(required)
+
+    assert _findings(required).count() == 1
+
+
+def test_required_only_skips_a_non_member_even_if_the_feature_is_required(channel):
+    product = _product(channel)
+    FeatureFactory(
+        idx="material", feature_type=FeatureTypeEnum.VARCHAR255, scope=FeatureScopeEnum.BUSINESS_UNIT, is_required=True
+    )
+    GapDefinitionFactory(
+        key="mat", check_key=GapCheck.FEATURE_PRESENT, params={"feature_idx": "material", "required_only": True}
+    )
+
+    svc.detect_for_product(product)
+
+    assert _findings(product).count() == 0
+
+
+def test_validate_params_accepts_required_only_as_a_bool_only():
+    registry.validate_params(GapCheck.FEATURE_PRESENT, {"feature_idx": "x", "required_only": True})
+    registry.validate_params(GapCheck.FEATURE_MIN_LENGTH, {"feature_idx": "x", "min_length": 3, "required_only": False})
+    with pytest.raises(ValueError, match="required_only"):
+        registry.validate_params(GapCheck.FEATURE_PRESENT, {"feature_idx": "x", "required_only": "yes"})
+
+
 # --- per-type emptiness -------------------------------------------------------
 
 

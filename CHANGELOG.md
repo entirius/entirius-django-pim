@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Gaps: `feature_present` and `feature_min_length` accept an optional `required_only` param (bool). With it the
+  check applies only where the product's feature set requires the feature — the membership's `is_required`
+  override, else the feature's own flag — so one definition per feature gates exactly the sets that require it,
+  instead of every set that merely contains it. Default unchanged (membership). No migration.
+
 ## 3.7.0 — 2026-11-11
 
 ### Fixed
@@ -90,7 +99,6 @@
   published service spec, and their `/api/pim/admin/` twins) describes the object the view returns instead of an
   array of it: a page `{count, next, previous, results}`, `{results}` (gap findings keyed by product pk, gap
   exemptions), or `{positioned, unpositioned, ...}` (category products). The bodies are unchanged.
-
 
 ## 3.5.0 — 2026-10-27
 - Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
