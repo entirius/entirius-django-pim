@@ -4,6 +4,9 @@
 
 ### Added
 
+- Enrichment: `attribute_value` proposals now apply to DECIMAL and BOOL (`{"value": ...}`) and to VARCHAR255 and TEXT
+  (`{"text": ...}`). `read_current` returns the same shapes; an empty value is restore-only, so only revert removes the
+  row. A decimal reads back in plain digits, so a stored 12.500000 and a proposed 12.5 are not drift.
 - Gaps: `feature_present` and `feature_min_length` accept an optional `required_only` param (bool). With it the
   check applies only where the product's feature set requires the feature — the membership's `is_required`
   override, else the feature's own flag — so one definition per feature gates exactly the sets that require it,

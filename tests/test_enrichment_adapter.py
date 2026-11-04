@@ -14,6 +14,8 @@ import json
 import os
 from unittest import mock
 
+from decimal import Decimal
+
 import pytest
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -75,6 +77,133 @@ def _make_product(*, channel, sku, feature_idx="enr_desc", t9n=None, feature_typ
 
 def _locator(channel, language="pl", feature_idx="enr_desc"):
     return {"channel": channel.idx, "language": language, "feature_idx": feature_idx}
+
+
+def _scalar_product(channel, sku, feature_type):
+    return _make_product(channel=channel, sku=sku, feature_idx="enr_scalar", feature_type=feature_type)
+
+
+def _scalar_proposal(channel, sku, value, **snapshots):
+    locator = _locator(channel, "en", feature_idx="enr_scalar")
+    return _Proposal(subject_ref=sku, target_locator=locator, proposed_value=value, **snapshots)
+
+
+def _read_scalar(channel, sku):
+    return enrichment_adapter.read_current(
+        subject_ref=sku, target_kind="attribute_value", target_locator=_locator(channel, "en", feature_idx="enr_scalar")
+    )
+
+
+@pytest.mark.django_db
+class TestScalarValues:
+    def test_a_decimal_applies_and_reads_back_without_trailing_zeros(self):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-D1", FeatureTypeEnum.DECIMAL)
+
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-D1", {"value": "12.50"}))
+
+        assert ProductAttribute.objects.get(product=product, feature=feature).value_decimal == Decimal("12.5")
+        assert _read_scalar(channel, "SKU-D1") == {"value": "12.5"}
+
+    def test_a_whole_number_reads_back_in_plain_digits(self):
+        channel = ChannelFactory(is_default=True)
+        _scalar_product(channel, "SKU-D2", FeatureTypeEnum.DECIMAL)
+
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-D2", {"value": 1000}))
+
+        assert _read_scalar(channel, "SKU-D2") == {"value": "1000"}
+
+    def test_a_bool_applies_false_as_a_value(self):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-B1", FeatureTypeEnum.BOOL)
+
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-B1", {"value": False}))
+
+        assert ProductAttribute.objects.get(product=product, feature=feature).value_bool is False
+        assert _read_scalar(channel, "SKU-B1") == {"value": False}
+
+    @pytest.mark.parametrize("feature_type", [FeatureTypeEnum.TEXT, FeatureTypeEnum.VARCHAR255])
+    def test_plain_text_applies_without_a_language_map(self, feature_type):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-T1", feature_type)
+
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-T1", {"text": "13S4P"}))
+
+        assert ProductAttribute.objects.get(product=product, feature=feature).value_txt == "13S4P"
+        assert _read_scalar(channel, "SKU-T1") == {"text": "13S4P"}
+
+    @pytest.mark.parametrize(
+        ("feature_type", "key"),
+        [(FeatureTypeEnum.DECIMAL, "value"), (FeatureTypeEnum.BOOL, "value"), (FeatureTypeEnum.TEXT, "text")],
+    )
+    def test_an_empty_row_reads_empty(self, feature_type, key):
+        channel = ChannelFactory(is_default=True)
+        _scalar_product(channel, "SKU-E1", feature_type)
+
+        assert _read_scalar(channel, "SKU-E1") == {key: "" if key == "text" else None}
+
+    @pytest.mark.parametrize(
+        ("feature_type", "value", "message"),
+        [
+            (FeatureTypeEnum.DECIMAL, {"value": "fast"}, "expects a number"),
+            (FeatureTypeEnum.DECIMAL, {"value": "NaN"}, "expects a number"),
+            (FeatureTypeEnum.DECIMAL, {"value": True}, "expects a number"),
+            (FeatureTypeEnum.BOOL, {"value": "yes"}, "expects true or false"),
+            (FeatureTypeEnum.TEXT, {"text": 5}, "expects text"),
+        ],
+    )
+    def test_a_wrong_type_is_refused_and_writes_nothing(self, feature_type, value, message):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-W1", feature_type)
+
+        with pytest.raises(ValueError, match=message):
+            enrichment_adapter.apply(_scalar_proposal(channel, "SKU-W1", value))
+
+        assert not ProductAttribute.objects.filter(product=product, feature=feature).exists()
+
+    @pytest.mark.parametrize(
+        ("feature_type", "value"),
+        [(FeatureTypeEnum.DECIMAL, {"value": None}), (FeatureTypeEnum.TEXT, {"text": ""})],
+    )
+    def test_apply_refuses_an_empty_value_and_keeps_the_row(self, feature_type, value):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-C1", feature_type)
+        kept = {"value": "5"} if feature_type == FeatureTypeEnum.DECIMAL else {"text": "kept"}
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-C1", kept))
+
+        with pytest.raises(ValueError, match="restore-only"):
+            enrichment_adapter.apply(_scalar_proposal(channel, "SKU-C1", value))
+
+        assert ProductAttribute.objects.filter(product=product, feature=feature).exists()
+
+    def test_revert_restores_the_earlier_number(self):
+        channel = ChannelFactory(is_default=True)
+        _scalar_product(channel, "SKU-R2", FeatureTypeEnum.DECIMAL)
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R2", {"value": "7"}))
+        before = _read_scalar(channel, "SKU-R2")
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R2", {"value": "9"}))
+
+        enrichment_adapter.revert(_scalar_proposal(channel, "SKU-R2", {"value": "9"}, current_snapshot=before))
+
+        assert _read_scalar(channel, "SKU-R2") == {"value": "7"}
+
+    def test_revert_to_held_nothing_removes_the_row(self):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-R3", FeatureTypeEnum.DECIMAL)
+        before = _read_scalar(channel, "SKU-R3")
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R3", {"value": "9"}))
+
+        enrichment_adapter.revert(_scalar_proposal(channel, "SKU-R3", {"value": "9"}, current_snapshot=before))
+
+        assert not ProductAttribute.objects.filter(product=product, feature=feature).exists()
+
+    def test_a_feature_outside_the_set_is_refused(self):
+        channel = ChannelFactory(is_default=True)
+        _make_product(channel=channel, sku="SKU-O1")
+        FeatureFactory(idx="enr_scalar", feature_type=FeatureTypeEnum.DECIMAL)
+
+        with pytest.raises(ValueError, match="is not in the feature set"):
+            enrichment_adapter.apply(_scalar_proposal(channel, "SKU-O1", {"value": "1"}))
 
 
 @pytest.mark.django_db
