@@ -1,5 +1,38 @@
 # Changelog
 
+## 3.6.0 — 2026-11-04
+
+### Changed
+
+- **Admin API error bodies: clients that read `detail` read the v2 envelope instead** (`message`, and
+  `details[].description` for a 400). Every error answers `{error, message, debug_id, details[]}` instead of
+  `{"detail": ...}`; status codes are unchanged. The views raise DRF exceptions (`NotFound`, `ValidationError`, a
+  409 `Conflict`) and the service's v2 handler builds the body; a 500 keeps its `error_id`, now as `debug_id`. A
+  404 carries the generic `message` (the old text goes to the log), a 400 from a service rule keeps its text in
+  `details[0].description`. On the legacy alias `/api/pim/admin/` the service's non-v2 handler formats the raised
+  errors (Volkanos: contentdb `{meta, data}`), so its bodies change too; no in-tree client parses them.
+- Requires `entirius-django-utils>=2.4.0` (query location on validation details, a 409 keeps its message).
+
+### Fixed
+
+- Admin API: `gaps/findings/` without `product_ids`, with non-integers or with more than 200 ids names
+  `product_ids` (`location: "query"`); so do `gaps/exemptions/` without `sku`, `features/` with a bad `scope` or
+  `feature_type` and `categories/` with a bad `parent_category`. The findings operation documents the 400 and the
+  `product_ids` limit in OpenAPI.
+- Admin API: an unknown channel on `{channel}/feature-sets/` (list, detail, features) and
+  `{channel}/attributes-groups/`, and an unknown channel or product on the picture, video, link and file routes
+  under `products/{sku}/.../{pk}/`, answer 404 `NOT_FOUND` instead of 500.
+- Admin API: `PATCH products/{sku}/links/{pk}/` with an unknown `link_type_idx` answers 404 and with a link type that
+  another link between the same products already has answers 400, like create; both were 500. A duplicate link lost
+  to a concurrent create or update answers the same 400 instead of 500.
+- OpenAPI: the 200 of every admin list operation (channels, products, categories and their products, features,
+  feature sets, attributes, attributes groups, link types, files categories, gap definitions, gap findings, gap
+  exemptions, and a product's files, links, pictures and videos; 20 under `/api/pim/v2/admin/`, 17 of them in the
+  published service spec, and their `/api/pim/admin/` twins) describes the object the view returns instead of an
+  array of it: a page `{count, next, previous, results}`, `{results}` (gap findings keyed by product pk, gap
+  exemptions), or `{positioned, unpositioned, ...}` (category products). The bodies are unchanged.
+
+
 ## 3.5.0 — 2026-10-27
 - Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
   instead of 500, in every admin list view; a `page_size` that is not a positive integer answers 400

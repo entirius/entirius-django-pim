@@ -1,6 +1,6 @@
 [project]
 name = "entirius-django-pim"
-version = "3.5.0"
+version = "3.6.0"
 description = "Product information module for Entirius: products, categories, features, attributes and media per sales channel"
 keywords = ["django", "pim", "product-catalog", "ecommerce", "headless", "entirius"]
 classifiers = [
@@ -44,7 +44,7 @@ dependencies = [
     "entirius-py-image-transformations>=2.0.0",
     "entirius-py-process-logger>=2.0.0",
     "entirius-django-regional>=2.0.0",
-    "entirius-django-utils>=2.0.0",
+    "entirius-django-utils>=2.4.0",
 ]
 
 [project.optional-dependencies]
@@ -52,7 +52,7 @@ dev  = ["ruff", "pre-commit"]
 # tests/test_enrichment_conformance.py needs the enrichment adapter conformance kit, first shipped after
 # entirius-django-enrichment 2.2.0: add "entirius-django-enrichment>=2.3.0" here once released. Until then the
 # test skips unless the kit is installed by hand (`uv pip install -e ../entirius-django-enrichment`).
-test = ["pytest", "pytest-django", "factory-boy", "dj-database-url", "psycopg[binary]"]
+test = ["pytest", "pytest-django", "factory-boy", "dj-database-url", "psycopg[binary]", "jsonschema>=4.18"]
 
 [project.urls]
 Homepage = "https://docs.entirius.com/"

@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class AttributeResponse(BaseModel):
     """
@@ -53,6 +55,7 @@ class AttributeResponse(BaseModel):
     display_order: int = Field(..., description="Display order for sorting attributes", examples=[100, 200, 300], ge=0)
 
 
+@list_body
 class AttributeListResponse(BaseModel):
     """
     Response schema for paginated attribute list.

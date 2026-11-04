@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class FeatureResponse(BaseModel):
     """
@@ -93,6 +95,7 @@ class FeatureResponse(BaseModel):
     )
 
 
+@list_body
 class FeatureListResponse(BaseModel):
     """
     Response schema for paginated feature list.

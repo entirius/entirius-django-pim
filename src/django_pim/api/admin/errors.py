@@ -5,8 +5,11 @@
 """
 Shared error helpers for admin API views.
 
-Provides safe 500 responses that log full details server-side
-without leaking DB names, paths, or SQL fragments to callers.
+Views raise DRF exceptions and the service's v2 exception handler builds the
+error body. The helpers here cover what that handler does not: a conflict
+exception, a query-parameter error that names its location, and a safe 500
+that logs full details server-side without leaking DB names, paths, or SQL
+fragments to callers.
 """
 
 import traceback
@@ -15,17 +18,29 @@ import uuid
 from django_utils.api.v2_errors import ErrorDetail, ErrorResponse
 from process_logger import ProcessLogger
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 
-def not_found_response(detail: str) -> Response:
-    """Standard 404 response for missing resources."""
-    return Response({"detail": detail}, status=status.HTTP_404_NOT_FOUND)
+class Conflict(APIException):
+    """409: the request conflicts with the current state; the v2 handler keeps the message."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "The request conflicts with the current state."
+    default_code = "conflict"
+
+
+def query_param_error(param: str, message: str) -> ValidationError:
+    """400 on one query parameter: ``details[]`` names it, with location ``query`` (django-utils >= 2.4.0)."""
+    exc = ValidationError({param: [message]})
+    exc.location = "query"
+    return exc
 
 
 def internal_error(exc: Exception) -> Response:
-    """Log exception with structured trace context; return opaque 500 response.
+    """Log exception with structured trace context; return opaque 500 in the v2 envelope.
+
+    The ``debug_id`` the caller gets is the ``error_id`` of the log line.
 
     A DRF ``APIException`` (e.g. ``NotFound`` for a page out of range) is not an
     internal error: it is re-raised so the service exception handler answers it
@@ -48,10 +63,8 @@ def internal_error(exc: Exception) -> Response:
 
     logger.exception(exc)
 
-    return Response(
-        {"detail": f"Internal server error [{error_id}]"},
-        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    )
+    body = ErrorResponse(error="INTERNAL_ERROR", message="An internal error occurred.", debug_id=error_id)
+    return Response(body.model_dump(), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def validation_error_response(message: str, details: list[ErrorDetail]) -> Response:

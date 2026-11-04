@@ -16,5 +16,5 @@ class CreateProductLinkRequest(BaseModel):
 
 
 class UpdateProductLinkRequest(BaseModel):
-    link_type_idx: str | None = Field(None, description="Link type identifier", examples=["crosssell"])
+    link_type_idx: str | None = Field(None, description="Link type identifier", examples=["crosssell"], min_length=1)
     position: int | None = Field(None, description="Display order position", examples=[2])

@@ -6,6 +6,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
 from .lookup import PossibleDuplicateResponse
 
 
@@ -67,6 +68,7 @@ class ProductResponse(BaseModel):
     )
 
 
+@list_body
 class ProductListResponse(BaseModel):
     """
     Response schema for paginated product list.

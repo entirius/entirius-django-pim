@@ -17,8 +17,9 @@ from __future__ import annotations
 
 from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import raise_pydantic_as_drf
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -54,7 +55,7 @@ from ....services import (
     update_gap_definition,
     update_gaps_settings,
 )
-from ..errors import internal_error
+from ..errors import internal_error, query_param_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -132,7 +133,7 @@ class GapDefinitionViewSet(viewsets.ViewSet):
             )
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -142,7 +143,7 @@ class GapDefinitionViewSet(viewsets.ViewSet):
             definition = get_gap_definition(key)
             return Response(_gap_definition_response(definition).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return Response({"detail": f"Gap definition '{key}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Gap definition '{key}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -169,7 +170,7 @@ class GapDefinitionViewSet(viewsets.ViewSet):
             )
             return Response(_gap_definition_response(definition).model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -186,9 +187,9 @@ class GapDefinitionViewSet(viewsets.ViewSet):
             definition = update_gap_definition(key, data.model_dump(exclude_unset=True))
             return Response(_gap_definition_response(definition).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return Response({"detail": f"Gap definition '{key}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Gap definition '{key}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -198,7 +199,7 @@ class GapDefinitionViewSet(viewsets.ViewSet):
             delete_gap_definition(key)
             return Response({"detail": f"Gap definition '{key}' deleted"}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return Response({"detail": f"Gap definition '{key}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Gap definition '{key}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -219,7 +220,7 @@ class GapFindingViewSet(viewsets.ViewSet):
                 type=str,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="Comma-separated product PKs",
+                description=f"Comma-separated product PKs (`pk` in the product list), at most {_MAX_PRODUCT_IDS}",
             ),
             OpenApiParameter(name="language", type=str, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(
@@ -237,7 +238,12 @@ class GapFindingViewSet(viewsets.ViewSet):
                 description="Skip inherited",
             ),
         ],
-        responses={200: GapFindingsBulkResponse},
+        responses={
+            200: GapFindingsBulkResponse,
+            400: OpenApiResponse(
+                description="product_ids missing, not integers or too many; severity not critical|warning"
+            ),
+        },
         tags=["Quality Gaps"],
     )
     def list(self, request: Request, channel_idx: str) -> Response:
@@ -272,22 +278,22 @@ class GapFindingViewSet(viewsets.ViewSet):
             }
             return Response(GapFindingsBulkResponse(results=results).model_dump(), status=status.HTTP_200_OK)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
     @staticmethod
     def _parse_product_ids(raw: str | None) -> list[int]:
         if not raw:
-            raise ValueError("product_ids is required")
+            raise query_param_error("product_ids", "product_ids is required")
         try:
             ids = [int(part) for part in raw.split(",") if part.strip()]
         except ValueError:
-            raise ValueError("product_ids must be a comma-separated list of integers") from None
+            raise query_param_error("product_ids", "product_ids must be a comma-separated list of integers") from None
         if not ids:
-            raise ValueError("product_ids is required")
+            raise query_param_error("product_ids", "product_ids is required")
         if len(ids) > _MAX_PRODUCT_IDS:
-            raise ValueError(f"product_ids accepts at most {_MAX_PRODUCT_IDS} ids per call")
+            raise query_param_error("product_ids", f"product_ids accepts at most {_MAX_PRODUCT_IDS} ids per call")
         return ids
 
 
@@ -323,14 +329,14 @@ class GapExemptionViewSet(viewsets.ViewSet):
         try:
             sku = request.query_params.get("sku")
             if not sku:
-                raise ValueError("sku is required")
+                raise query_param_error("sku", "sku is required")
             exemptions = list_exemptions(channel_idx=channel_idx, sku=sku)
             payload = GapExemptionListResponse(results=[_gap_exemption_response(e) for e in exemptions])
             return Response(payload.model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist as e:
-            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(str(e)) from e
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -357,9 +363,9 @@ class GapExemptionViewSet(viewsets.ViewSet):
             )
             return Response(_gap_exemption_response(exemption).model_dump(), status=status.HTTP_201_CREATED)
         except ObjectDoesNotExist as e:
-            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(str(e)) from e
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -369,7 +375,7 @@ class GapExemptionViewSet(viewsets.ViewSet):
             delete_exemption(channel_idx=channel_idx, exemption_id=pk)
             return Response({"detail": f"Gap exemption {pk} deleted"}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist as e:
-            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(str(e)) from e
         except Exception as e:
             return internal_error(e)
 

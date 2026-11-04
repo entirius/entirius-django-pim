@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class ProductInCategoryResponse(BaseModel):
     """A product within a category with its position."""
@@ -21,6 +23,7 @@ class ProductInCategoryResponse(BaseModel):
     )
 
 
+@list_body
 class ProductInCategoryListResponse(BaseModel):
     """Response for listing products in a category with positioned/unpositioned split."""
 

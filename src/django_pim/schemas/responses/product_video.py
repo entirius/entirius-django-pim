@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class VideoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -30,6 +32,7 @@ class ProductVideoResponse(BaseModel):
     position: int = Field(description="Display order position", examples=[0])
 
 
+@list_body
 class ProductVideoListResponse(BaseModel):
     count: int = Field(description="Total number of product videos", examples=[0, 3], ge=0)
     next: str | None = Field(None, description="URL to next page")

@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class ChannelResponse(BaseModel):
     """Single channel response."""
@@ -29,6 +31,7 @@ class ChannelResponse(BaseModel):
     )
 
 
+@list_body
 class ChannelListResponse(BaseModel):
     """Paginated list of channels."""
 

@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from ._openapi import list_body
 from .feature import FeatureResponse
 
 
@@ -41,6 +42,7 @@ class FeatureSetResponse(BaseModel):
     feature_count: int = Field(0, description="Number of features in this set", examples=[0, 10, 50], ge=0)
 
 
+@list_body
 class FeatureSetListResponse(BaseModel):
     """
     Response schema for paginated feature set list.

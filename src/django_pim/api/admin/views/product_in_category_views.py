@@ -11,6 +11,7 @@ DRF ViewSet for managing product ordering in categories.
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -90,13 +91,11 @@ class ProductInCategoryViewSet(viewsets.ViewSet):
             return Response(response.model_dump(), status=status.HTTP_200_OK)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ProductCategory.DoesNotExist:
-            return Response(
-                {"detail": f"Category '{idx}' not found in channel '{channel_idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Category '{idx}' not found in channel '{channel_idx}'") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -141,8 +140,8 @@ class ProductInCategoryViewSet(viewsets.ViewSet):
             Product.DoesNotExist,
             ProductInCategory.DoesNotExist,
         ):
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)

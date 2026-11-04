@@ -12,6 +12,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -31,7 +32,7 @@ from ....services import (
     resolve_attribute_name,
     update_feature,
 )
-from ..errors import internal_error, not_found_response
+from ..errors import internal_error, query_param_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -164,19 +165,16 @@ class FeatureViewSet(viewsets.ViewSet):
                 try:
                     scope = int(scope_param)
                 except ValueError:
-                    return Response(
-                        {"detail": "Invalid scope parameter: must be an integer"}, status=status.HTTP_400_BAD_REQUEST
-                    )
+                    raise query_param_error("scope", "Invalid scope parameter: must be an integer") from None
 
             feature_type = None
             if feature_type_param is not None:
                 try:
                     feature_type = int(feature_type_param)
                 except ValueError:
-                    return Response(
-                        {"detail": "Invalid feature_type parameter: must be an integer"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                    raise query_param_error(
+                        "feature_type", "Invalid feature_type parameter: must be an integer"
+                    ) from None
 
             is_filterable = None
             if is_filterable_param is not None:
@@ -226,9 +224,9 @@ class FeatureViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except ObjectDoesNotExist:
-            return not_found_response("Feature not found")
+            raise drf_exceptions.NotFound("Feature not found") from None
         except ValueError as e:
-            return Response({"detail": f"Invalid parameter: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(f"Invalid parameter: {str(e)}") from e
         except Exception as e:
             return internal_error(e)
 
@@ -256,7 +254,7 @@ class FeatureViewSet(viewsets.ViewSet):
             lang = get_channel_language(channel_idx)
             return Response(build_feature_response(feature, language=lang).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"Feature with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"Feature with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -295,7 +293,7 @@ class FeatureViewSet(viewsets.ViewSet):
             )
             return Response(build_feature_response(feature).model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -322,9 +320,9 @@ class FeatureViewSet(viewsets.ViewSet):
             feature = update_feature(idx=idx, **fields)
             return Response(build_feature_response(feature).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"Feature '{idx}' not found")
+            raise drf_exceptions.NotFound(f"Feature '{idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -344,9 +342,9 @@ class FeatureViewSet(viewsets.ViewSet):
             deleted = delete_feature(idx=idx)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"Feature '{idx}' not found")
+            raise drf_exceptions.NotFound(f"Feature '{idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -401,6 +399,6 @@ class FeatureViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except ObjectDoesNotExist:
-            return not_found_response(f"Feature with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"Feature with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)

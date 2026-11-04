@@ -16,6 +16,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,7 +34,7 @@ from ....services.product_link_type_service import (
     resolve_product_link_type_name,
     update_product_link_type,
 )
-from ..errors import internal_error, not_found_response
+from ..errors import internal_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -134,7 +135,7 @@ class ProductLinkTypeViewSet(viewsets.ViewSet):
             lt = get_product_link_type_by_idx(idx=idx)
             return Response(_build_link_type_response(lt).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"ProductLinkType with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"ProductLinkType with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -154,7 +155,7 @@ class ProductLinkTypeViewSet(viewsets.ViewSet):
             lt = create_product_link_type(idx=data.idx, name_t9n=data.name_t9n, position=data.position, desc=data.desc)
             return Response(_build_link_type_response(lt).model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -180,7 +181,7 @@ class ProductLinkTypeViewSet(viewsets.ViewSet):
             lt = update_product_link_type(idx=idx, **fields)
             return Response(_build_link_type_response(lt).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"ProductLinkType with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"ProductLinkType with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -199,6 +200,6 @@ class ProductLinkTypeViewSet(viewsets.ViewSet):
             deleted = delete_product_link_type(idx=idx)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"ProductLinkType with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"ProductLinkType with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)

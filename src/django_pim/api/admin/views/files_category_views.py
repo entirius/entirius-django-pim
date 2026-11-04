@@ -16,6 +16,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,7 +34,7 @@ from ....services.files_category_service import (
     resolve_files_category_name,
     update_files_category,
 )
-from ..errors import internal_error, not_found_response
+from ..errors import internal_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -132,7 +133,7 @@ class FilesCategoryViewSet(viewsets.ViewSet):
             cat = get_files_category_by_code(code=code)
             return Response(_build_category_response(cat).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"FilesCategory with code '{code}' not found")
+            raise drf_exceptions.NotFound(f"FilesCategory with code '{code}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -152,7 +153,7 @@ class FilesCategoryViewSet(viewsets.ViewSet):
             cat = create_files_category(code=data.code, name_t9n=data.name_t9n)
             return Response(_build_category_response(cat).model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -178,7 +179,7 @@ class FilesCategoryViewSet(viewsets.ViewSet):
             cat = update_files_category(code=code, **fields)
             return Response(_build_category_response(cat).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"FilesCategory with code '{code}' not found")
+            raise drf_exceptions.NotFound(f"FilesCategory with code '{code}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -197,6 +198,6 @@ class FilesCategoryViewSet(viewsets.ViewSet):
             deleted = delete_files_category(code=code)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"FilesCategory with code '{code}' not found")
+            raise drf_exceptions.NotFound(f"FilesCategory with code '{code}' not found") from None
         except Exception as e:
             return internal_error(e)

@@ -528,7 +528,6 @@ class TestInternalErrorNoLeak:
     def test_unexpected_error_returns_sanitized_500(self, _mock, authenticated_client):
         response = authenticated_client.get(GAPDEFS_URL)
         assert response.status_code == 500
-        detail = response.json()["detail"]
-        assert "secret" not in detail
-        assert "postgres" not in detail
-        assert "Internal server error" in detail
+        assert response.json()["error"] == "INTERNAL_ERROR"
+        assert "secret" not in response.content.decode()
+        assert "postgres" not in response.content.decode()

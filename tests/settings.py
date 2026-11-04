@@ -69,6 +69,8 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework_simplejwt.authentication.JWTAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # The service routes v2 paths to this handler; tests also reach the views through the legacy alias.
+    "EXCEPTION_HANDLER": "django_utils.api.v2_errors.v2_exception_handler",
 }
 
 TEMPLATES = [

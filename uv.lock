@@ -494,7 +494,7 @@ wheels = [
 
 [[package]]
 name = "entirius-django-pim"
-version = "3.5.0"
+version = "3.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "celery" },
@@ -532,6 +532,7 @@ dev = [
 test = [
     { name = "dj-database-url" },
     { name = "factory-boy" },
+    { name = "jsonschema" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
     { name = "pytest-django" },
@@ -548,13 +549,14 @@ requires-dist = [
     { name = "djangorestframework-simplejwt", specifier = ">=5.3" },
     { name = "drf-spectacular", specifier = ">=0.27" },
     { name = "entirius-django-regional", specifier = ">=2.0.0" },
-    { name = "entirius-django-utils", specifier = ">=2.0.0" },
+    { name = "entirius-django-utils", specifier = ">=2.4.0" },
     { name = "entirius-py-bievents", specifier = ">=2.0.0" },
     { name = "entirius-py-idx-normalizator", specifier = ">=2.0.0" },
     { name = "entirius-py-image-transformations", specifier = ">=2.0.0" },
     { name = "entirius-py-int-enum-choices", specifier = ">=2.0.0" },
     { name = "entirius-py-process-logger", specifier = ">=2.0.0" },
     { name = "factory-boy", marker = "extra == 'test'" },
+    { name = "jsonschema", marker = "extra == 'test'", specifier = ">=4.18" },
     { name = "opencv-contrib-python", specifier = ">=4.5" },
     { name = "pillow", specifier = ">=9.1.0" },
     { name = "pre-commit", marker = "extra == 'dev'" },
@@ -593,7 +595,7 @@ wheels = [
 
 [[package]]
 name = "entirius-django-utils"
-version = "2.3.0"
+version = "2.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -611,9 +613,9 @@ dependencies = [
     { name = "python-slugify" },
     { name = "webargs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b0/25/3418958d318b6fa0a428c49a5832c4b21ae76ed2359953718e7f3fffb8d6/entirius_django_utils-2.3.0.tar.gz", hash = "sha256:26d9ca1ef953d79363cf1902096a73cfe40d1eb64c38a168e99c7f5f32d7347e", size = 91188, upload-time = "2026-10-12T08:41:50.256Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/d0/8371c71ddc752ca068c76848375ab417d07b49a0253ba396e427b09dc712/entirius_django_utils-2.4.2.tar.gz", hash = "sha256:a4965d52355bcb9b54d028de15daae2ce17b64a13d8752e3ddc30b17190b8996", size = 95709, upload-time = "2026-10-29T13:17:42.899Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/8b/a24d6378e123100cded79a0334d0f8ea9c25d908e14e9274969575bd7c41/entirius_django_utils-2.3.0-py3-none-any.whl", hash = "sha256:75a00071b7aa04bab02e5cf225ce8d52b3ac61d614542f0b9873c3bfed36288e", size = 42073, upload-time = "2026-10-12T08:41:49.298Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/ae/d62d9b57f8ebd9038708ee34223ef2fc66d34409a48f5e40efc86a757ebe/entirius_django_utils-2.4.2-py3-none-any.whl", hash = "sha256:e9cebe31e4292a690c8f554fc2457da92ef4419d6cb04941abc80fea36f9eac6", size = 44018, upload-time = "2026-10-29T13:17:41.778Z" },
 ]
 
 [[package]]

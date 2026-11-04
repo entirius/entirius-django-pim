@@ -11,6 +11,7 @@ DRF ViewSet for managing product video assignments (YouTube/Vimeo URLs).
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -132,12 +133,9 @@ class ProductVideoViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product with SKU '{sku}' not found in channel '{channel_idx}'"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except Exception as e:
             return internal_error(e)
 
@@ -169,8 +167,12 @@ class ProductVideoViewSet(viewsets.ViewSet):
         try:
             pv = get_product_video(channel_idx=channel_idx, sku=sku, pk=pk)
             return Response(_build_product_video_response(pv).model_dump(), status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductVideo.DoesNotExist:
-            return Response({"detail": f"ProductVideo with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductVideo with pk {pk} not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -210,11 +212,11 @@ class ProductVideoViewSet(viewsets.ViewSet):
             )
             return Response(_build_product_video_response(pv).model_dump(), status=status.HTTP_201_CREATED)
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
-            return Response({"detail": f"Product with SKU '{sku}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -253,10 +255,14 @@ class ProductVideoViewSet(viewsets.ViewSet):
             fields = {k: v for k, v in data.model_dump().items() if v is not None}
             pv = update_product_video(channel_idx=channel_idx, sku=sku, pk=pk, **fields)
             return Response(_build_product_video_response(pv).model_dump(), status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductVideo.DoesNotExist:
-            return Response({"detail": f"ProductVideo with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductVideo with pk {pk} not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -288,7 +294,11 @@ class ProductVideoViewSet(viewsets.ViewSet):
         try:
             deleted = delete_product_video(channel_idx=channel_idx, sku=sku, pk=pk)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductVideo.DoesNotExist:
-            return Response({"detail": f"ProductVideo with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductVideo with pk {pk} not found") from None
         except Exception as e:
             return internal_error(e)

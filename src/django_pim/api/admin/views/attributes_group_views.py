@@ -12,11 +12,13 @@ from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....models import Channel
 from ....schemas import AttributesGroupListResponse, AttributesGroupResponse
 from ....schemas.requests import CreateAttributesGroupRequest, UpdateAttributesGroupRequest
 from ....services import (
@@ -27,7 +29,7 @@ from ....services import (
     resolve_attributes_group_name,
     update_attributes_group,
 )
-from ..errors import internal_error, not_found_response
+from ..errors import internal_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -120,6 +122,8 @@ class AttributesGroupViewSet(viewsets.ViewSet):
 
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -153,7 +157,7 @@ class AttributesGroupViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except ObjectDoesNotExist:
-            return not_found_response(f"AttributesGroup with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"AttributesGroup with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -180,7 +184,7 @@ class AttributesGroupViewSet(viewsets.ViewSet):
             )
             return Response(response_data.model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -213,7 +217,7 @@ class AttributesGroupViewSet(viewsets.ViewSet):
             )
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"AttributesGroup with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"AttributesGroup with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -232,6 +236,6 @@ class AttributesGroupViewSet(viewsets.ViewSet):
             deleted = delete_attributes_group(idx=idx)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
-            return not_found_response(f"AttributesGroup with idx '{idx}' not found")
+            raise drf_exceptions.NotFound(f"AttributesGroup with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)

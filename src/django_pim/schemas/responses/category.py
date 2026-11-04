@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class CategoryResponse(BaseModel):
     """
@@ -49,6 +51,7 @@ class CategoryResponse(BaseModel):
     )
 
 
+@list_body
 class CategoryListResponse(BaseModel):
     """
     Response schema for paginated category list.

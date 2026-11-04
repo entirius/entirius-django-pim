@@ -12,6 +12,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -28,7 +29,7 @@ from ....services import (
     reorder_categories,
     update_category,
 )
-from ..errors import internal_error
+from ..errors import internal_error, query_param_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -162,10 +163,9 @@ class CategoryViewSet(viewsets.ViewSet):
                 try:
                     parent_category_id = int(parent_category_param)
                 except ValueError:
-                    return Response(
-                        {"detail": "Invalid parent_category parameter: must be an integer"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                    raise query_param_error(
+                        "parent_category", "Invalid parent_category parameter: must be an integer"
+                    ) from None
 
             categories_qs = list_categories(
                 channel_idx=channel_idx,
@@ -204,9 +204,9 @@ class CategoryViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -233,12 +233,9 @@ class CategoryViewSet(viewsets.ViewSet):
             category = get_category_detail(channel_idx=channel_idx, idx=idx)
             return Response(_build_category_detail_response(category).model_dump(), status=status.HTTP_200_OK)
         except ProductCategory.DoesNotExist:
-            return Response(
-                {"detail": f"Category with idx '{idx}' not found in channel '{channel_idx}'"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise drf_exceptions.NotFound(f"Category with idx '{idx}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -287,13 +284,13 @@ class CategoryViewSet(viewsets.ViewSet):
             category = get_category_detail(channel_idx=channel_idx, idx=category.idx)
             return Response(_build_category_detail_response(category).model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ProductCategory.DoesNotExist:
-            return Response({"detail": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Category not found") from None
         except ObjectDoesNotExist:
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -329,15 +326,13 @@ class CategoryViewSet(viewsets.ViewSet):
             category = get_category_detail(channel_idx=channel_idx, idx=idx)
             return Response(_build_category_detail_response(category).model_dump(), status=status.HTTP_200_OK)
         except ProductCategory.DoesNotExist:
-            return Response(
-                {"detail": f"Category '{idx}' not found in channel '{channel_idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Category '{idx}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except ObjectDoesNotExist:
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -364,11 +359,9 @@ class CategoryViewSet(viewsets.ViewSet):
             result = delete_category(channel_idx=channel_idx, idx=idx)
             return Response(result, status=status.HTTP_200_OK)
         except ProductCategory.DoesNotExist:
-            return Response(
-                {"detail": f"Category '{idx}' not found in channel '{channel_idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Category '{idx}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -403,8 +396,8 @@ class CategoryViewSet(viewsets.ViewSet):
             count = reorder_categories(channel_idx=channel_idx, items=[item.model_dump() for item in data.items])
             return Response({"reordered": count}, status=status.HTTP_200_OK)
         except (ProductCategory.DoesNotExist, Channel.DoesNotExist):
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)

@@ -137,7 +137,9 @@ class TestPatchOverride:
         )
 
         assert response.status_code == 400
-        assert "system" in response.json()["detail"]
+        body = response.json()
+        assert body["error"] == "VALIDATION_ERROR"
+        assert "system" in body["details"][0]["description"]
 
     @pytest.mark.parametrize(
         "url",
@@ -290,14 +292,16 @@ class TestProductCreateErrors:
         assert response.status_code == 400
         assert response.json()["details"][0]["field"] == "feature_set_idx"
 
-    def test_duplicate_sku_stays_400_detail(self, authenticated_client, setup, settings):
+    def test_duplicate_sku_stays_400(self, authenticated_client, setup, settings):
         self._post(authenticated_client)
         settings.PIM_ENFORCE_REQUIRED_ON_CREATE = True
 
         response = self._post(authenticated_client)
 
         assert response.status_code == 400
-        assert "already exists" in response.json()["detail"]
+        body = response.json()
+        assert body["error"] == "VALIDATION_ERROR"
+        assert "already exists" in body["details"][0]["description"]
 
 
 class TestOpenApiContract:

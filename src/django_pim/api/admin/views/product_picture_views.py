@@ -11,6 +11,7 @@ DRF ViewSet for managing product gallery and uploading images.
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view, inline_serializer
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import serializers, status, viewsets
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
@@ -80,14 +81,11 @@ class PictureUploadView(APIView):
     )
     def post(self, request: Request) -> Response:
         if "image" not in request.FILES:
-            return Response({"detail": "No 'image' file provided"}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError("No 'image' file provided")
 
         image_file = request.FILES["image"]
         if image_file.size > MAX_PICTURE_SIZE:
-            return Response(
-                {"detail": f"Image size exceeds maximum of {MAX_PICTURE_SIZE // (1024 * 1024)}MB"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise drf_exceptions.ValidationError(f"Image size exceeds maximum of {MAX_PICTURE_SIZE // (1024 * 1024)}MB")
 
         try:
             picture = upload_picture(image_file)
@@ -174,12 +172,9 @@ class ProductPictureViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product with SKU '{sku}' not found in channel '{channel_idx}'"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except Exception as e:
             return internal_error(e)
 
@@ -211,8 +206,12 @@ class ProductPictureViewSet(viewsets.ViewSet):
         try:
             pp = get_product_picture(channel_idx=channel_idx, sku=sku, pk=pk)
             return Response(_build_product_picture_response(pp).model_dump(), status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductPicture.DoesNotExist:
-            return Response({"detail": f"ProductPicture with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductPicture with pk {pk} not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -243,9 +242,8 @@ class ProductPictureViewSet(viewsets.ViewSet):
             if "image" in request.FILES:
                 image_file = request.FILES["image"]
                 if image_file.size > MAX_PICTURE_SIZE:
-                    return Response(
-                        {"detail": f"Image size exceeds maximum of {MAX_PICTURE_SIZE // (1024 * 1024)}MB"},
-                        status=status.HTTP_400_BAD_REQUEST,
+                    raise drf_exceptions.ValidationError(
+                        f"Image size exceeds maximum of {MAX_PICTURE_SIZE // (1024 * 1024)}MB"
                     )
 
                 picture = upload_picture(image_file)
@@ -283,13 +281,13 @@ class ProductPictureViewSet(viewsets.ViewSet):
             return Response(_build_product_picture_response(pp).model_dump(), status=status.HTTP_201_CREATED)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
-            return Response({"detail": f"Product with SKU '{sku}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found") from None
         except Picture.DoesNotExist:
-            return Response({"detail": "Picture not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Picture not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -328,10 +326,14 @@ class ProductPictureViewSet(viewsets.ViewSet):
             fields = {k: v for k, v in data.model_dump().items() if v is not None}
             pp = update_product_picture(channel_idx=channel_idx, sku=sku, pk=pk, **fields)
             return Response(_build_product_picture_response(pp).model_dump(), status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductPicture.DoesNotExist:
-            return Response({"detail": f"ProductPicture with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductPicture with pk {pk} not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -363,7 +365,11 @@ class ProductPictureViewSet(viewsets.ViewSet):
         try:
             deleted = unlink_picture_from_product(channel_idx=channel_idx, sku=sku, pk=pk)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductPicture.DoesNotExist:
-            return Response({"detail": f"ProductPicture with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductPicture with pk {pk} not found") from None
         except Exception as e:
             return internal_error(e)

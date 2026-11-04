@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class PictureResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -33,6 +35,7 @@ class ProductPictureResponse(BaseModel):
     alt_text_t9n: dict = Field(description="Alt text translations", examples=[{"en": "Blue ergonomic chair"}])
 
 
+@list_body
 class ProductPictureListResponse(BaseModel):
     count: int = Field(description="Total number of product pictures", examples=[0, 5], ge=0)
     next: str | None = Field(None, description="URL to next page")

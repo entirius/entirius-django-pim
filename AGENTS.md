@@ -116,6 +116,12 @@ src/django_pim/
 
 Layer rule: `API → Services → Models → DB`. No ORM in views.
 
+Errors: admin views raise DRF exceptions (`NotFound`, `ValidationError`, `api/admin/errors.py` `Conflict` and
+`query_param_error`) and the service's v2 handler builds the envelope; never return an error as `{"detail": ...}`.
+Only `internal_error()` (500, `debug_id` = logged `error_id`) and `validation_error_response()` (product create's
+own issue codes) build an envelope by hand. `tests/settings.py` points DRF at the v2 handler, so tests see what the
+service answers.
+
 Signals: PIM publishes Django signals on model changes (Product, ProductAttribute, Feature, Attribute, …) that
 trigger the Matrix read-model sync through Celery; off by default, enabled by `PimSettings.matrix_signals_enabled`
 in Django admin. Pattern: https://docs.entirius.com/architecture/signal-driven-sync/
@@ -141,6 +147,10 @@ own gate (`PimSettings.gaps_enabled`), Redis keys and Celery tasks.
 
 ## Gotchas
 
+- A list view's response model carries `@list_body` (`schemas/responses/_openapi.py`): drf-spectacular describes
+  the 200 of every `list` action as an array of its model, while the views answer one object (a page, `{results}`
+  or the category-products split);
+  `tests/test_openapi_list_responses.py` fails on a new list action without it
 - Tests need Postgres 15+ — set `DATABASE_URL` (default `postgresql://postgres:postgres@localhost:5432/test`)
 - RealProduct fields (weight, EAN, dimensions) are shared -- updating affects all channels
 - `T9N_DEFAULT_LANG` defaults to `"en"` -- affects name resolution fallback

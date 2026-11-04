@@ -13,6 +13,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django_utils.api.v2_errors import ErrorDetail, ErrorResponse, raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -49,7 +50,7 @@ from ....services import (
     toggle_media_override,
     update_product,
 )
-from ..errors import internal_error, validation_error_response
+from ..errors import Conflict, internal_error, validation_error_response
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -325,9 +326,9 @@ class ProductViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -420,12 +421,9 @@ class ProductViewSet(viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product with SKU '{sku}' not found in channel '{channel_idx}'"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -490,7 +488,7 @@ class ProductViewSet(viewsets.ViewSet):
         except UnresolvedAttributesError as exc:
             return _unresolved_response(exc)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Channel.DoesNotExist:
             return _unknown_reference_response("channel_idx", "path", f"Channel '{channel_idx}' not found.")
         except FeatureSet.DoesNotExist:
@@ -498,7 +496,7 @@ class ProductViewSet(viewsets.ViewSet):
                 "feature_set_idx", "body", f"Feature set '{data.feature_set_idx}' not found."
             )
         except ObjectDoesNotExist:
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -537,15 +535,13 @@ class ProductViewSet(viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product '{sku}' not found in channel '{channel_idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Product '{sku}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except ObjectDoesNotExist:
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -572,11 +568,9 @@ class ProductViewSet(viewsets.ViewSet):
             result = delete_product(channel_idx=channel_idx, sku=sku)
             return Response(result, status=status.HTTP_200_OK)
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product '{sku}' not found in channel '{channel_idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Product '{sku}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -614,9 +608,9 @@ class ProductViewSet(viewsets.ViewSet):
             )
             return Response(result, status=status.HTTP_200_OK)
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -648,9 +642,7 @@ class ProductViewSet(viewsets.ViewSet):
 
         try:
             if data.source_channel_idx == channel_idx:
-                return Response(
-                    {"detail": "Source and target channels cannot be the same"}, status=status.HTTP_400_BAD_REQUEST
-                )
+                raise drf_exceptions.ValidationError("Source and target channels cannot be the same")
 
             target_product = get_product_detail(channel_idx=channel_idx, sku=sku)
             source_product = get_product_detail(channel_idx=data.source_channel_idx, sku=sku)
@@ -664,9 +656,9 @@ class ProductViewSet(viewsets.ViewSet):
             )
 
         except Product.DoesNotExist:
-            return Response({"detail": f"Product '{sku}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Product '{sku}' not found") from None
         except Channel.DoesNotExist:
-            return Response({"detail": "Channel not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Channel not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -715,13 +707,11 @@ class ProductViewSet(viewsets.ViewSet):
                 status=status.HTTP_201_CREATED,
             )
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+            raise Conflict(str(e)) from e
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product '{sku}' not found in channel '{channel_idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Product '{sku}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
-            return Response({"detail": "Channel not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Channel not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -762,13 +752,13 @@ class ProductViewSet(viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Product.DoesNotExist:
-            return Response({"detail": f"Product '{sku}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Product '{sku}' not found") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Feature.DoesNotExist:
-            return Response({"detail": f"Feature '{data.feature_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature '{data.feature_idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -813,10 +803,10 @@ class ProductViewSet(viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Product.DoesNotExist:
-            return Response({"detail": f"Product '{sku}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Product '{sku}' not found") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)

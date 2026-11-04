@@ -102,13 +102,32 @@ All list endpoints return:
 | `401` | No token or expired token |
 | `403` | Valid token but `is_staff=False` and `is_superuser=False` |
 | `404` | Channel, product, category, feature, feature set, or attribute not found |
+| `409` | Product already in the target channel (`add-to-channel/`) |
 | `500` | Unexpected server error |
 
-Error body format:
+Every error is the API v2 envelope, built by the service's v2 exception handler (`entirius-django-utils`):
 
 ```json
-{"detail": "Human-readable message"}
+{
+  "error": "VALIDATION_ERROR",
+  "message": "Request validation failed.",
+  "debug_id": "f7a2c3b8",
+  "details": [
+    {"field": "product_ids", "location": "query", "issue": "INVALID", "description": "product_ids is required"}
+  ]
+}
 ```
+
+| HTTP | `error` | `message` | `details[]` |
+|------|---------|-----------|-------------|
+| `400` | `VALIDATION_ERROR` | `Request validation failed.` (create with required features: its own) | one entry per problem; a service rule (duplicate `idx`, SYSTEM feature) has `field: null` and the text in `description`; `product_ids` and `sku` (gaps), `scope` and `feature_type` (features), `parent_category` (categories) name the parameter with `location: "query"` |
+| `404` | `NOT_FOUND` | `The requested resource was not found.` | empty |
+| `409` | `CONFLICT` | the conflict, e.g. `Product with SKU 'X' already exists in channel 'y'` | empty |
+| `500` | `INTERNAL_ERROR` | `An internal error occurred.` | empty; `debug_id` is the `error_id` of the server log line |
+
+The legacy alias `/api/pim/admin/` serves the same views with the same status codes, but the service's handler for
+non-v2 paths formats what they raise (in the Volkanos service contentdb's `{meta, data}`, e.g. `data: ["..."]` for a
+400); only the 500 stays in the envelope. Use `/api/pim/v2/admin/` for a parseable error body.
 
 ---
 
@@ -266,7 +285,8 @@ All product endpoints are channel-scoped. Path parameter `{channel_idx}` is alwa
 | Unknown channel | `channel_idx` (`location: path`) | `NOT_FOUND` | always |
 | Unknown feature set | `feature_set_idx` | `NOT_FOUND` | always |
 
-A duplicate SKU stays a 400 with `{"detail": "..."}`. Nothing is written on any 400. See
+A duplicate SKU stays a 400 (`VALIDATION_ERROR`, the text in `details[0].description`). Nothing is written on
+any 400. See
 [Required Features](./required-features/).
 
 **Status codes:** `201`, `400` (validation, duplicate SKU, unknown channel or feature set), `401`, `403`
@@ -896,7 +916,7 @@ Sets or clears the per-set override of `Feature.is_required` for one membership.
 
 **Response `200 FeatureInSetResponse`.**
 
-**Status codes:** `200`, `400` (missing key, non-boolean, or SYSTEM-scope feature: `{"detail": "..."}`), `401`, `403`, `404` (feature set, feature or membership not found)
+**Status codes:** `200`, `400` (missing key, non-boolean, or SYSTEM-scope feature: `VALIDATION_ERROR`), `401`, `403`, `404` (feature set, feature or membership not found)
 
 ---
 

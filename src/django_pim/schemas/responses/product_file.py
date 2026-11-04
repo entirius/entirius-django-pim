@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class FileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -34,6 +36,7 @@ class ProductFileResponse(BaseModel):
     file: FileResponse = Field(description="File details")
 
 
+@list_body
 class ProductFileListResponse(BaseModel):
     count: int = Field(description="Total number of product files", examples=[0, 3], ge=0)
     next: str | None = Field(None, description="URL to next page")

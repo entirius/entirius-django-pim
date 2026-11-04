@@ -13,6 +13,7 @@ import json
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view, inline_serializer
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import serializers, status, viewsets
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
@@ -86,23 +87,20 @@ class FileUploadView(APIView):
     )
     def post(self, request: Request) -> Response:
         if "file" not in request.FILES:
-            return Response({"detail": "No 'file' provided"}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError("No 'file' provided")
 
         file_obj = request.FILES["file"]
         if file_obj.size > MAX_FILE_SIZE:
-            return Response(
-                {"detail": f"File size exceeds maximum of {MAX_FILE_SIZE // (1024 * 1024)}MB"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise drf_exceptions.ValidationError(f"File size exceeds maximum of {MAX_FILE_SIZE // (1024 * 1024)}MB")
 
         file_label_t9n = request.data.get("file_label_t9n", None)
         if isinstance(file_label_t9n, str):
             try:
                 file_label_t9n = json.loads(file_label_t9n)
             except json.JSONDecodeError:
-                return Response({"detail": "Invalid JSON in file_label_t9n"}, status=status.HTTP_400_BAD_REQUEST)
+                raise drf_exceptions.ValidationError("Invalid JSON in file_label_t9n") from None
             if not isinstance(file_label_t9n, dict):
-                return Response({"detail": "file_label_t9n must be a JSON object"}, status=status.HTTP_400_BAD_REQUEST)
+                raise drf_exceptions.ValidationError("file_label_t9n must be a JSON object")
 
         try:
             f = upload_file(
@@ -176,12 +174,9 @@ class ProductFileViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
-            return Response(
-                {"detail": f"Product with SKU '{sku}' not found in channel '{channel_idx}'"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except Exception as e:
             return internal_error(e)
 
@@ -212,9 +207,8 @@ class ProductFileViewSet(viewsets.ViewSet):
             if "file" in request.FILES:
                 file_obj = request.FILES["file"]
                 if file_obj.size > MAX_FILE_SIZE:
-                    return Response(
-                        {"detail": f"File size exceeds maximum of {MAX_FILE_SIZE // (1024 * 1024)}MB"},
-                        status=status.HTTP_400_BAD_REQUEST,
+                    raise drf_exceptions.ValidationError(
+                        f"File size exceeds maximum of {MAX_FILE_SIZE // (1024 * 1024)}MB"
                     )
 
                 f = upload_file(
@@ -236,13 +230,13 @@ class ProductFileViewSet(viewsets.ViewSet):
             return Response(_build_product_file_response(pf).model_dump(), status=status.HTTP_201_CREATED)
 
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
-            return Response({"detail": f"Product with SKU '{sku}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found") from None
         except Files.DoesNotExist:
-            return Response({"detail": "File not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("File not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -274,8 +268,12 @@ class ProductFileViewSet(viewsets.ViewSet):
         try:
             deleted = unlink_file_from_product(channel_idx=channel_idx, sku=sku, pk=pk)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
+        except Product.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductFile.DoesNotExist:
-            return Response({"detail": f"ProductFile with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"ProductFile with pk {pk} not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -311,10 +309,8 @@ class FileUpdateView(APIView):
             f = update_file(pk=pk, **kwargs)
             return Response(_build_file_response(f).model_dump(), status=status.HTTP_200_OK)
         except Files.DoesNotExist:
-            return Response({"detail": f"File with pk {pk} not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"File with pk {pk} not found") from None
         except FilesCategory.DoesNotExist:
-            return Response(
-                {"detail": f"Category code '{data.file_category_code}' not found"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            raise drf_exceptions.ValidationError(f"Category code '{data.file_category_code}' not found") from None
         except Exception as e:
             return internal_error(e)

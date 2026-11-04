@@ -824,13 +824,6 @@ class TestPagination:
 class TestPaginationErrors:
     """Bad page / page_size answer 4xx in the v2 envelope, never 500 (issue #24)."""
 
-    @pytest.fixture(autouse=True)
-    def v2_exception_handler(self, settings):
-        settings.REST_FRAMEWORK = {
-            **settings.REST_FRAMEWORK,
-            "EXCEPTION_HANDLER": "django_utils.api.v2_errors.v2_exception_handler",
-        }
-
     @pytest.fixture
     def product(self, shop):
         from tests.factories import ProductFactory

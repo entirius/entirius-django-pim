@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class FilesCategoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -17,6 +19,7 @@ class FilesCategoryResponse(BaseModel):
     db_created: str = Field(description="Creation timestamp", examples=["2024-01-01T00:00:00Z"])
 
 
+@list_body
 class FilesCategoryListResponse(BaseModel):
     count: int = Field(description="Total number of file categories", examples=[0, 4], ge=0)
     next: str | None = Field(None, description="URL to next page")

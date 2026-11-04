@@ -12,6 +12,7 @@ including bulk management of features within a set.
 from django_utils.api.v2_errors import raise_pydantic_as_drf
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import ValidationError
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -174,10 +175,12 @@ class FeatureSetViewSet(viewsets.ViewSet):
 
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except FeatureSet.DoesNotExist:
-            return Response({"detail": "Feature set not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Feature set not found") from None
         except ValueError as e:
-            return Response({"detail": f"Invalid parameter: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(f"Invalid parameter: {str(e)}") from e
         except Exception as e:
             return internal_error(e)
 
@@ -203,8 +206,10 @@ class FeatureSetViewSet(viewsets.ViewSet):
         try:
             feature_set = get_feature_set_by_idx(idx=idx, channel_idx=channel_idx)
             return Response(_build_feature_set_response(feature_set).model_dump(), status=status.HTTP_200_OK)
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set with idx '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -227,7 +232,7 @@ class FeatureSetViewSet(viewsets.ViewSet):
             feature_set = get_feature_set_by_idx(idx=feature_set.idx)
             return Response(_build_feature_set_response(feature_set).model_dump(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -254,9 +259,9 @@ class FeatureSetViewSet(viewsets.ViewSet):
             feature_set = update_feature_set(idx=idx, **fields)
             return Response(_build_feature_set_response(feature_set).model_dump(), status=status.HTTP_200_OK)
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set '{idx}' not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -276,7 +281,7 @@ class FeatureSetViewSet(viewsets.ViewSet):
             deleted = delete_feature_set(idx=idx)
             return Response({"deleted": deleted}, status=status.HTTP_200_OK)
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -332,8 +337,10 @@ class FeatureSetViewSet(viewsets.ViewSet):
 
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
 
+        except Channel.DoesNotExist:
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set with idx '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set with idx '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -377,11 +384,11 @@ class FeatureSetViewSet(viewsets.ViewSet):
             return Response([item.model_dump() for item in response_items], status=status.HTTP_201_CREATED)
 
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set '{idx}' not found") from None
         except Feature.DoesNotExist:
-            return Response({"detail": "Feature not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Feature not found") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -408,7 +415,7 @@ class FeatureSetViewSet(viewsets.ViewSet):
             count = bulk_remove_features_from_set(feature_set_idx=idx, feature_idxs=data.feature_idxs)
             return Response({"removed": count}, status=status.HTTP_200_OK)
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set '{idx}' not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -439,11 +446,11 @@ class FeatureSetViewSet(viewsets.ViewSet):
             count = reorder_features_in_set(feature_set_idx=idx, features=entries)
             return Response({"reordered": count}, status=status.HTTP_200_OK)
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set '{idx}' not found") from None
         except (Feature.DoesNotExist, FeatureInFeatureSet.DoesNotExist):
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Not found") from None
         except AttributesGroup.DoesNotExist:
-            return Response({"detail": "Attributes group not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound("Attributes group not found") from None
         except Exception as e:
             return internal_error(e)
 
@@ -477,13 +484,11 @@ class FeatureSetViewSet(viewsets.ViewSet):
             membership = set_feature_required_override(idx, feature_idx, data.is_required)
             return Response(_build_feature_in_set_response(membership, None).model_dump(), status=status.HTTP_200_OK)
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set '{idx}' not found") from None
         except (Feature.DoesNotExist, FeatureInFeatureSet.DoesNotExist):
-            return Response(
-                {"detail": f"Feature '{feature_idx}' is not in feature set '{idx}'"}, status=status.HTTP_404_NOT_FOUND
-            )
+            raise drf_exceptions.NotFound(f"Feature '{feature_idx}' is not in feature set '{idx}'") from None
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise drf_exceptions.ValidationError(str(e)) from e
         except Exception as e:
             return internal_error(e)
 
@@ -522,8 +527,8 @@ class FeatureSetViewSet(viewsets.ViewSet):
             ]
             return Response([item.model_dump() for item in items], status=status.HTTP_200_OK)
         except FeatureSet.DoesNotExist:
-            return Response({"detail": f"Feature set with idx '{idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Feature set with idx '{idx}' not found") from None
         except Channel.DoesNotExist:
-            return Response({"detail": f"Channel '{channel_idx}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Exception as e:
             return internal_error(e)

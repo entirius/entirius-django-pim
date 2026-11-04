@@ -10,6 +10,8 @@ Covers: GapDefinition CRUD, the per-page bulk findings endpoint, the recompute t
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class GapDefinitionResponse(BaseModel):
     """A single gap definition (rule)."""
@@ -31,6 +33,7 @@ class GapDefinitionResponse(BaseModel):
     modified_at: str | None = Field(None, description="ISO8601 last-modified timestamp")
 
 
+@list_body
 class GapDefinitionListResponse(BaseModel):
     """Paginated list of gap definitions."""
 
@@ -55,6 +58,7 @@ class GapFindingResponse(BaseModel):
     source_channel: str | None = Field(None, description="Where to fix it when inherited (null otherwise)")
 
 
+@list_body
 class GapFindingsBulkResponse(BaseModel):
     """Findings for a page of products, keyed by product PK (as string).
 
@@ -80,6 +84,7 @@ class GapExemptionResponse(BaseModel):
     created_at: str | None = Field(None, description="ISO8601 creation timestamp")
 
 
+@list_body
 class GapExemptionListResponse(BaseModel):
     """All exemptions of one product (small set — no pagination)."""
 

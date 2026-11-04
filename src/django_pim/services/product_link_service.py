@@ -8,7 +8,7 @@ ProductLink service layer for business logic.
 CRUD operations for product-to-product links (related, crosssell, upsell, etc.).
 """
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 from ..models import Channel, Product, ProductLink, ProductLinkType
@@ -19,6 +19,32 @@ ORDERING_MAP: dict[str, str] = {
     "position": "position",
     "-position": "-position",
 }
+
+_EDITABLE_FIELDS = frozenset({"link_type_idx", "position"})
+
+
+def _is_duplicate(link: ProductLink) -> bool:
+    """Another link already joins these products with this type (the model's unique_together)."""
+    others = ProductLink.objects.filter(
+        product_id=link.product_id, linked_product_id=link.linked_product_id, link_type_id=link.link_type_id
+    )
+    return others.exclude(pk=link.pk).exists()
+
+
+def _duplicate_error(sku: str, link: ProductLink) -> ValueError:
+    linked_sku = link.linked_product.real_product.sku
+    return ValueError(f"Product link already exists: {sku} → {linked_sku} ({link.link_type.idx})")
+
+
+def _save_unique(sku: str, link: ProductLink) -> None:
+    """Save the link; a duplicate, found by the check or by unique_together under a concurrent request, is a ValueError."""
+    if _is_duplicate(link):
+        raise _duplicate_error(sku, link)
+    try:
+        with transaction.atomic():
+            link.save()
+    except IntegrityError:
+        raise _duplicate_error(sku, link) from None
 
 
 def resolve_product_name(product: Product) -> str:
@@ -102,19 +128,23 @@ def create_product_link(
     if product.pk == linked_product.pk:
         raise ValueError("Cannot link a product to itself")
 
-    if ProductLink.objects.filter(product=product, linked_product=linked_product, link_type=link_type).exists():
-        raise ValueError(f"Product link already exists: {sku} → {linked_product_sku} ({link_type_idx})")
-
-    link = ProductLink.objects.create(
-        product=product, linked_product=linked_product, link_type=link_type, position=position
-    )
+    link = ProductLink(product=product, linked_product=linked_product, link_type=link_type, position=position)
+    _save_unique(sku, link)
 
     return ProductLink.objects.select_related("linked_product__real_product", "link_type").get(pk=link.pk)
 
 
 @transaction.atomic
 def update_product_link(channel_idx: str, sku: str, pk: int, **fields: object) -> ProductLink:
-    """Update a product link."""
+    """Update a product link.
+
+    Raises:
+        Channel.DoesNotExist, Product.DoesNotExist, ProductLink.DoesNotExist, ProductLinkType.DoesNotExist
+        ValueError: If a field is not editable, or the new link type duplicates another link between the same products
+    """
+    invalid = set(fields) - _EDITABLE_FIELDS
+    if invalid:
+        raise ValueError(f"Fields not editable via update_product_link: {sorted(invalid)}")
     channel = Channel.objects.get(idx=channel_idx)
     product = Product.objects.select_related("real_product").get(shop=channel, real_product__sku__iexact=sku)
     link = ProductLink.objects.get(product=product, pk=pk)
@@ -125,7 +155,7 @@ def update_product_link(channel_idx: str, sku: str, pk: int, **fields: object) -
     for field, value in fields.items():
         if value is not None:
             setattr(link, field, value)
-    link.save()
+    _save_unique(sku, link)
 
     return ProductLink.objects.select_related("linked_product__real_product", "link_type").get(pk=link.pk)
 

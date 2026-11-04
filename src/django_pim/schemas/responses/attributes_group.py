@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class AttributesGroupResponse(BaseModel):
     """
@@ -39,6 +41,7 @@ class AttributesGroupResponse(BaseModel):
     attribute_count: int = Field(0, description="Number of attributes in this group", examples=[0, 5, 10], ge=0)
 
 
+@list_body
 class AttributesGroupListResponse(BaseModel):
     """
     Response schema for paginated attributes group list.

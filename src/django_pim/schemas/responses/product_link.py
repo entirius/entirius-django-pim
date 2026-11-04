@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._openapi import list_body
+
 
 class LinkedProductBriefResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -26,6 +28,7 @@ class ProductLinkResponse(BaseModel):
     db_created: str = Field(description="Creation timestamp", examples=["2024-01-01T00:00:00Z"])
 
 
+@list_body
 class ProductLinkListResponse(BaseModel):
     count: int = Field(description="Total number of product links", examples=[0, 5], ge=0)
     next: str | None = Field(None, description="URL to next page")
