@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel, Picture, Product, ProductPicture
 from ....models.product_picture import PictureRole
 from ....schemas.requests.product_picture import LinkPictureRequest, UpdateProductPictureRequest
@@ -31,7 +32,7 @@ from ....services.product_picture_service import (
     update_product_picture,
     upload_picture,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -246,9 +247,12 @@ class ProductPictureViewSet(viewsets.ViewSet):
                         f"Image size exceeds maximum of {MAX_PICTURE_SIZE // (1024 * 1024)}MB"
                     )
 
+                try:
+                    position = int(request.data.get("position", 0))
+                except (TypeError, ValueError):
+                    raise drf_exceptions.ValidationError({"position": ["A valid integer is required."]}) from None
                 picture = upload_picture(image_file)
                 picture_role = request.data.get("picture_role", "general")
-                position = int(request.data.get("position", 0))
                 language_iso2 = request.data.get("language_iso2", None)
                 alt_text_t9n = request.data.get("alt_text_t9n", {})
 
@@ -286,8 +290,8 @@ class ProductPictureViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found") from None
         except Picture.DoesNotExist:
             raise drf_exceptions.NotFound("Picture not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -332,8 +336,8 @@ class ProductPictureViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductPicture.DoesNotExist:
             raise drf_exceptions.NotFound(f"ProductPicture with pk {pk} not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

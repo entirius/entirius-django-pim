@@ -7,19 +7,23 @@ Shared error helpers for admin API views.
 
 Views raise DRF exceptions and the service's v2 exception handler builds the
 error body. The helpers here cover what that handler does not: a conflict
-exception, a query-parameter error that names its location, and a safe 500
-that logs full details server-side without leaking DB names, paths, or SQL
-fragments to callers.
+exception, a query-parameter error that names its location, a module refusal
+(``ClientError``) answered with the message the module wrote for the client, and
+a safe 500 that logs full details server-side without leaking DB names, paths,
+or SQL fragments to callers.
 """
 
 import traceback
 import uuid
+from typing import NoReturn
 
 from django_utils.api.v2_errors import ErrorDetail, ErrorResponse
 from process_logger import ProcessLogger
 from rest_framework import status
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
+
+from django_pim.exceptions import ClientError
 
 
 class Conflict(APIException):
@@ -35,6 +39,29 @@ def query_param_error(param: str, message: str) -> ValidationError:
     exc = ValidationError({param: [message]})
     exc.location = "query"
     return exc
+
+
+def int_query_param(raw: str | None, param: str, minimum: int | None = None) -> int | None:
+    """An optional integer query parameter: ``None`` when absent, a 400 naming ``param`` when not an integer
+    or below ``minimum``."""
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        raise query_param_error(param, f"Invalid {param} parameter: must be an integer") from None
+    if minimum is not None and value < minimum:
+        raise query_param_error(param, f"Invalid {param} parameter: must be at least {minimum}")
+    return value
+
+
+def raise_client_error(exc: ClientError, error_class: type[APIException] = ValidationError) -> NoReturn:
+    """Re-raise a module refusal as ``error_class`` (400 by default) carrying only ``exc.client_message``.
+
+    Views catch ``InvalidRequestError``, never a bare ``ValueError``: the text of an
+    exception from a lower layer must not reach the client; the v2 handler answers it with a 500.
+    """
+    raise error_class(exc.client_message) from exc
 
 
 def internal_error(exc: Exception) -> Response:

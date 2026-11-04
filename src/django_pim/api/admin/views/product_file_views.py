@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel, Files, FilesCategory, Product, ProductFile
 from ....models.files import FileRole
 from ....schemas.requests.product_file import LinkFileRequest, UpdateFileRequest
@@ -33,7 +34,7 @@ from ....services.product_file_service import (
     update_file,
     upload_file,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -111,6 +112,8 @@ class FileUploadView(APIView):
                 file_type=request.data.get("file_type", None),
             )
             return Response(_build_file_response(f).model_dump(), status=status.HTTP_201_CREATED)
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -235,8 +238,8 @@ class ProductFileViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found") from None
         except Files.DoesNotExist:
             raise drf_exceptions.NotFound("File not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

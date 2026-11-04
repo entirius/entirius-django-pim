@@ -13,6 +13,7 @@ from django.db import transaction
 from django.db.models import Count, QuerySet
 from slugify import slugify
 
+from ..exceptions import InvalidRequestError
 from ..models import Channel, ProductCategory
 
 # Maps API ordering params to actual DB field paths.
@@ -176,7 +177,7 @@ def create_category(
     channel = Channel.objects.get(idx=channel_idx)
 
     if ProductCategory.objects.filter(shop=channel, idx=idx).exists():
-        raise ValueError(f"Category with idx '{idx}' already exists in channel '{channel_idx}'")
+        raise InvalidRequestError(f"Category with idx '{idx}' already exists in channel '{channel_idx}'")
 
     parent = None
     if parent_category_idx:
@@ -229,7 +230,7 @@ def update_category(channel_idx: str, idx: str, **fields) -> ProductCategory:
             current = new_parent
             while current is not None:
                 if current.pk == category.pk:
-                    raise ValueError("Circular category reference")
+                    raise InvalidRequestError("Circular category reference")
                 current = current.parent_category
             category.parent_category = new_parent
 
@@ -288,7 +289,9 @@ def reorder_categories(channel_idx: str, items: list[dict]) -> int:
             current = new_parent
             while current is not None:
                 if current.pk == category.pk:
-                    raise ValueError(f"Circular category reference: '{item['idx']}' would become its own ancestor")
+                    raise InvalidRequestError(
+                        f"Circular category reference: '{item['idx']}' would become its own ancestor"
+                    )
                 current = current.parent_category
             category.parent_category = new_parent
         category.position = item["position"]

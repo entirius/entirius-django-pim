@@ -17,6 +17,7 @@ from typing import Any
 
 from django.db.models import Q, QuerySet
 
+from ..exceptions import InvalidRequestError
 from ..models.gap_definition import GapDefinition, GapSeverity
 from .gap_check_registry import validate_params
 
@@ -41,7 +42,7 @@ _VALID_SEVERITIES = {s.value for s in GapSeverity}
 def validate_severity(severity: str) -> None:
     """Reject a severity outside the GapSeverity enum (shared by every gap filter/create path)."""
     if severity not in _VALID_SEVERITIES:
-        raise ValueError(f"Invalid severity: {severity!r}. Allowed: {sorted(_VALID_SEVERITIES)}")
+        raise InvalidRequestError(f"Invalid severity: {severity!r}. Allowed: {sorted(_VALID_SEVERITIES)}")
 
 
 def list_gap_definitions(
@@ -49,7 +50,7 @@ def list_gap_definitions(
 ) -> QuerySet[GapDefinition]:
     """List gap definitions with optional search/filter and an allowlisted ordering."""
     if ordering is not None and ordering not in _ORDERING_MAP:
-        raise ValueError(f"Invalid ordering: {ordering!r}. Allowed: {sorted(_ORDERING_MAP)}")
+        raise InvalidRequestError(f"Invalid ordering: {ordering!r}. Allowed: {sorted(_ORDERING_MAP)}")
 
     qs = GapDefinition.objects.all()
     if search:
@@ -84,7 +85,7 @@ def create_gap_definition(
     validate_params(check_key, params)
     validate_severity(severity)
     if GapDefinition.objects.filter(key=key).exists():
-        raise ValueError(f"Gap definition with key {key!r} already exists")
+        raise InvalidRequestError(f"Gap definition with key {key!r} already exists")
 
     definition = GapDefinition(
         key=key,
@@ -108,7 +109,7 @@ def update_gap_definition(key: str, updates: dict[str, Any]) -> GapDefinition:
     """
     invalid = set(updates) - _EDITABLE_FIELDS
     if invalid:
-        raise ValueError(f"Fields not editable: {sorted(invalid)}")
+        raise InvalidRequestError(f"Fields not editable: {sorted(invalid)}")
 
     definition = GapDefinition.objects.get(key=key)
 

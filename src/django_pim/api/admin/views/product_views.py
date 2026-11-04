@@ -19,7 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from ....exceptions import RequiredFeaturesMissingError, UnresolvedAttributesError
+from ....exceptions import InvalidRequestError, RequiredFeaturesMissingError, UnresolvedAttributesError
 from ....models import Channel, Feature, FeatureSet, Product
 from ....schemas import (
     ProductAttributeValueResponse,
@@ -50,7 +50,7 @@ from ....services import (
     toggle_media_override,
     update_product,
 )
-from ..errors import Conflict, internal_error, validation_error_response
+from ..errors import Conflict, int_query_param, internal_error, raise_client_error, validation_error_response
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -260,10 +260,10 @@ class ProductViewSet(viewsets.ViewSet):
                 is_enabled = is_enabled_param.lower() in ("true", "1", "yes")
 
             visibility_param = request.query_params.get("visibility", None)
-            visibility = int(visibility_param) if visibility_param else None
+            visibility = int_query_param(visibility_param, "visibility")
 
             product_class_param = request.query_params.get("product_class", None)
-            product_class_val = int(product_class_param) if product_class_param else None
+            product_class_val = int_query_param(product_class_param, "product_class")
 
             category = request.query_params.get("category", None)
 
@@ -327,8 +327,8 @@ class ProductViewSet(viewsets.ViewSet):
 
         except Channel.DoesNotExist:
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -487,8 +487,8 @@ class ProductViewSet(viewsets.ViewSet):
             return _required_missing_response(exc)
         except UnresolvedAttributesError as exc:
             return _unresolved_response(exc)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Channel.DoesNotExist:
             return _unknown_reference_response("channel_idx", "path", f"Channel '{channel_idx}' not found.")
         except FeatureSet.DoesNotExist:
@@ -538,8 +538,8 @@ class ProductViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Product '{sku}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except ObjectDoesNotExist:
             raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
@@ -609,8 +609,8 @@ class ProductViewSet(viewsets.ViewSet):
             return Response(result, status=status.HTTP_200_OK)
         except Channel.DoesNotExist:
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -706,8 +706,8 @@ class ProductViewSet(viewsets.ViewSet):
                 _build_product_detail_response(product, language=get_channel_language(channel_idx)).model_dump(),
                 status=status.HTTP_201_CREATED,
             )
-        except ValueError as e:
-            raise Conflict(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e, Conflict)
         except Product.DoesNotExist:
             raise drf_exceptions.NotFound(f"Product '{sku}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
@@ -751,8 +751,8 @@ class ProductViewSet(viewsets.ViewSet):
                 _build_product_detail_response(product, language=get_channel_language(channel_idx)).model_dump(),
                 status=status.HTTP_200_OK,
             )
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Product.DoesNotExist:
             raise drf_exceptions.NotFound(f"Product '{sku}' not found") from None
         except Channel.DoesNotExist:
@@ -802,8 +802,8 @@ class ProductViewSet(viewsets.ViewSet):
                 _build_product_detail_response(product, language=get_channel_language(channel_idx)).model_dump(),
                 status=status.HTTP_200_OK,
             )
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Product.DoesNotExist:
             raise drf_exceptions.NotFound(f"Product '{sku}' not found") from None
         except Channel.DoesNotExist:

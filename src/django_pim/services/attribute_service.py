@@ -13,6 +13,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 
 from .. import settings
+from ..exceptions import InvalidRequestError
 from ..models import Attribute, AttributesGroup, Channel, Feature
 
 # Maps API ordering params to actual DB field paths.
@@ -217,7 +218,7 @@ def create_attribute(
             attr.save()
         return attr
     except IntegrityError:
-        raise ValueError(f"Attribute '{idx}' already exists for feature '{feature_idx}'") from None
+        raise InvalidRequestError(f"Attribute '{idx}' already exists for feature '{feature_idx}'") from None
 
 
 def update_attribute(feature_idx: str, idx: str, **fields: object) -> Attribute:

@@ -16,6 +16,7 @@ from __future__ import annotations
 from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ObjectDoesNotExist
 
+from ..exceptions import InvalidRequestError
 from ..models import GapDefinition, GapExemption
 from .gap_detection_service import detect_for_product
 from .product_service import get_product_by_sku
@@ -41,7 +42,7 @@ def create_exemption(
     """Mute one rule for one product (``language=None`` = all languages) and re-detect.
 
     Raises ObjectDoesNotExist for an unknown sku/definition (→ 404) and ValueError for a
-    language the channel does not serve or a duplicate exemption (→ 400).
+    language the channel does not serve or a duplicate exemption (→ 400, an InvalidRequestError).
     """
     product = get_product_by_sku(channel_idx, sku)
     try:
@@ -53,10 +54,10 @@ def create_exemption(
         language = language.lower()
         served = {iso2.lower() for iso2 in product.shop.languages.values_list("iso2", flat=True)}
         if language not in served:
-            raise ValueError(f"Language {language!r} is not served by channel {channel_idx!r}")
+            raise InvalidRequestError(f"Language {language!r} is not served by channel {channel_idx!r}")
 
     if GapExemption.objects.filter(product=product, definition=definition, language=language).exists():
-        raise ValueError(f"Exemption for {sku!r} / {definition_key!r} / {language!r} already exists")
+        raise InvalidRequestError(f"Exemption for {sku!r} / {definition_key!r} / {language!r} already exists")
 
     exemption = GapExemption.objects.create(
         product=product, definition=definition, language=language, reason=reason, created_by=created_by

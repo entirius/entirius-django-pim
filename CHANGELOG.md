@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.6.1 — 2026-11-04
+
+### Security
+
+- Admin API: no exception text reaches a response (CodeQL `py/stack-trace-exposure`, 42 alerts). A refusal the PIM
+  writes for the client is an `InvalidRequestError` (`django_pim.exceptions`, a `ClientError` and still a
+  `ValueError` for direct callers); the views answer only its `client_message`. Any other `ValueError` from a lower
+  layer answers 500 `INTERNAL_ERROR` with a `debug_id`, its text goes to the log. The gap exemption routes answer an
+  `ObjectDoesNotExist` with `NotFound("Not found")` (the v2 handler already replaced the 404 text).
+- CI: the workflow token is read-only (`permissions: contents: read`, CodeQL `actions/missing-workflow-permissions`).
+
+### Changed
+
+- Admin API: a `ValueError` the PIM did not raise as a refusal answers 500 instead of 400 with its text, on every
+  admin route that answered a service `ValueError` with a 400. The refusals the services, `ProductAttribute.save()`,
+  `FeatureInFeatureSet` and the validators write on those routes (duplicate idx/SKU, SYSTEM feature, circular
+  category, inheritance off, unknown role/language/ordering/severity/gap params, a bad idx, SKU or EAN from
+  `idx_normalizator`) keep their 400 (409 for add-to-channel) and their message.
+- Admin API: a non-integer `visibility` or `product_class` on `{channel}/products/`, `page` or `page_size` on
+  `{channel}/categories/{idx}/products/` and `position` on a picture upload answer 400 naming the parameter instead
+  of 400 with Python's `invalid literal for int()`; `page` below 1 and a negative `page_size` there answer the same
+  400 instead of Django's "Negative indexing is not supported.". An empty `scope`, `feature_type` or
+  `parent_category` is ignored like the other empty filters instead of a 400.
+
+### Fixed
+
+- Admin API: `files/upload/` with an unknown `file_type` answers 400 `Invalid file type: ...` instead of 500, and a
+  picture upload with a bad `position` is refused before the picture is stored (it left an unlinked picture).
+
 ## 3.6.0 — 2026-11-04
 
 ### Changed

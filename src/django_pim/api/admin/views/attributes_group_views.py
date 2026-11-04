@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel
 from ....schemas import AttributesGroupListResponse, AttributesGroupResponse
 from ....schemas.requests import CreateAttributesGroupRequest, UpdateAttributesGroupRequest
@@ -29,7 +30,7 @@ from ....services import (
     resolve_attributes_group_name,
     update_attributes_group,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -183,8 +184,8 @@ class AttributesGroupViewSet(viewsets.ViewSet):
                 attribute_count=group.attribute_count,
             )
             return Response(response_data.model_dump(), status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

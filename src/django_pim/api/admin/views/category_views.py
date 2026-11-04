@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel, ProductCategory
 from ....schemas import CategoryDetailResponse, CategoryListResponse, CategoryResponse
 from ....schemas.requests import CategoryReorderRequest, CreateCategoryRequest, UpdateCategoryRequest
@@ -29,7 +30,7 @@ from ....services import (
     reorder_categories,
     update_category,
 )
-from ..errors import internal_error, query_param_error
+from ..errors import int_query_param, internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -158,14 +159,7 @@ class CategoryViewSet(viewsets.ViewSet):
             if root_only_param is not None:
                 root_only = root_only_param.lower() in ("true", "1", "yes")
 
-            parent_category_id = None
-            if parent_category_param is not None:
-                try:
-                    parent_category_id = int(parent_category_param)
-                except ValueError:
-                    raise query_param_error(
-                        "parent_category", "Invalid parent_category parameter: must be an integer"
-                    ) from None
+            parent_category_id = int_query_param(parent_category_param, "parent_category")
 
             categories_qs = list_categories(
                 channel_idx=channel_idx,
@@ -205,8 +199,8 @@ class CategoryViewSet(viewsets.ViewSet):
 
         except Channel.DoesNotExist:
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -283,8 +277,8 @@ class CategoryViewSet(viewsets.ViewSet):
             # Re-fetch with annotations for detail response
             category = get_category_detail(channel_idx=channel_idx, idx=category.idx)
             return Response(_build_category_detail_response(category).model_dump(), status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Channel.DoesNotExist:
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ProductCategory.DoesNotExist:
@@ -329,8 +323,8 @@ class CategoryViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Category '{idx}' not found in channel '{channel_idx}'") from None
         except Channel.DoesNotExist:
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except ObjectDoesNotExist:
             raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
@@ -397,7 +391,7 @@ class CategoryViewSet(viewsets.ViewSet):
             return Response({"reordered": count}, status=status.HTTP_200_OK)
         except (ProductCategory.DoesNotExist, Channel.DoesNotExist):
             raise drf_exceptions.NotFound("Not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)

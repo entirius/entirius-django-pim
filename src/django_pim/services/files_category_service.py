@@ -11,6 +11,7 @@ CRUD operations for file categories (manual, datasheet, certificate, etc.).
 from django.db.models import Q, QuerySet
 
 from .. import settings
+from ..exceptions import InvalidRequestError
 from ..models import FilesCategory
 
 # Maps API ordering params to actual DB field paths.
@@ -72,7 +73,7 @@ def resolve_files_category_name(category: FilesCategory, language: str | None = 
 def create_files_category(code: str, name_t9n: dict) -> FilesCategory:
     """Create a new file category."""
     if FilesCategory.objects.filter(code=code).exists():
-        raise ValueError(f"FilesCategory with code '{code}' already exists")
+        raise InvalidRequestError(f"FilesCategory with code '{code}' already exists")
 
     return FilesCategory.objects.create(code=code, name_t9n=name_t9n)
 

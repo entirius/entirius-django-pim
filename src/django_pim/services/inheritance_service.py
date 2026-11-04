@@ -19,6 +19,7 @@ from collections import defaultdict
 from django.db import transaction
 from django.db.models import Q
 
+from ..exceptions import InvalidRequestError
 from ..models import (
     Channel,
     Feature,
@@ -507,7 +508,7 @@ def copy_translations(source_product: Product, target_product: Product, language
     Returns count of attributes copied.
     """
     if source_product.shop_id == target_product.shop_id:
-        raise ValueError("Source and target channels cannot be the same")
+        raise InvalidRequestError("Source and target channels cannot be the same")
 
     common_features = _get_feature_intersection(
         source_product.feature_set,
@@ -602,7 +603,9 @@ def add_product_to_channel(
     target_channel = Channel.objects.get(idx=target_channel_idx)
 
     if Product.objects.filter(shop=target_channel, real_product=source_product.real_product).exists():
-        raise ValueError(f"Product with SKU '{source_product.sku}' already exists in channel '{target_channel_idx}'")
+        raise InvalidRequestError(
+            f"Product with SKU '{source_product.sku}' already exists in channel '{target_channel_idx}'"
+        )
 
     new_product = Product.objects.create(
         real_product=source_product.real_product,
@@ -643,15 +646,15 @@ def toggle_language_override(product: Product, feature_idx: str, language: str, 
     """
     is_description = feature_idx in DESCRIPTION_FEATURE_IDXS
     if is_description and not product.inherit_descriptions:
-        raise ValueError("Description inheritance is not enabled on this product")
+        raise InvalidRequestError("Description inheritance is not enabled on this product")
     if not is_description and not product.inherit_attributes:
-        raise ValueError("Attribute inheritance is not enabled on this product")
+        raise InvalidRequestError("Attribute inheritance is not enabled on this product")
 
     feature = Feature.objects.get(idx=feature_idx)
     attr = ProductAttribute.objects.filter(product=product, feature=feature).first()
 
     if not attr:
-        raise ValueError(f"Attribute for feature '{feature_idx}' not found on product")
+        raise InvalidRequestError(f"Attribute for feature '{feature_idx}' not found on product")
 
     overridden = set(attr.overridden_langs or [])
 
@@ -692,25 +695,25 @@ def toggle_media_override(
         ValueError: If media item not found on product.
     """
     if not product.inherit_images:
-        raise ValueError("Image inheritance is not enabled on this product")
+        raise InvalidRequestError("Image inheritance is not enabled on this product")
 
     if picture_id is not None:
         pp = ProductPicture.objects.filter(product=product, pk=picture_id).first()
         if not pp:
-            raise ValueError(f"Picture {picture_id} not found on product")
+            raise InvalidRequestError(f"Picture {picture_id} not found on product")
         pp.is_inherited = not override
         pp.save(update_fields=["is_inherited"])
     elif video_id is not None:
         pv = ProductVideo.objects.filter(product=product, pk=video_id).first()
         if not pv:
-            raise ValueError(f"Video {video_id} not found on product")
+            raise InvalidRequestError(f"Video {video_id} not found on product")
         pv.is_inherited = not override
         pv.save(update_fields=["is_inherited"])
     elif file_id is not None:
         pf = ProductFile.objects.filter(product=product, pk=file_id).first()
         if not pf:
-            raise ValueError(f"File {file_id} not found on product")
+            raise InvalidRequestError(f"File {file_id} not found on product")
         pf.is_inherited = not override
         pf.save(update_fields=["is_inherited"])
     else:
-        raise ValueError("Must specify picture_id, video_id, or file_id")
+        raise InvalidRequestError("Must specify picture_id, video_id, or file_id")

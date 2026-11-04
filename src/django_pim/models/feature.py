@@ -6,10 +6,10 @@ import hashlib
 from enum import IntEnum
 
 from django.db import models
-from idx_normalizator import validate_idx
 from int_enum_choices import IntEnumChoices
 from slugify import slugify
 
+from django_pim.validators import validate_idx
 from django_pim.workers.unit_conversion import Length, Mass, Temperature
 
 from .. import settings

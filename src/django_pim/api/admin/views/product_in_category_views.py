@@ -17,11 +17,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel, Product, ProductCategory, ProductInCategory
 from ....schemas.requests.product_in_category import ProductPositionReorderRequest
 from ....schemas.responses.product_in_category import ProductInCategoryListResponse
 from ....services.product_in_category_service import list_products_in_category, reorder_products_in_category
-from ..errors import internal_error
+from ..errors import int_query_param, internal_error, raise_client_error
 from ..permissions import IsAdminUser
 
 
@@ -80,8 +81,8 @@ class ProductInCategoryViewSet(viewsets.ViewSet):
             page = request.query_params.get("page", None)
             page_size = request.query_params.get("page_size", "24")
 
-            page_int = int(page) if page else None
-            page_size_int = min(int(page_size), 100)
+            page_int = int_query_param(page, "page", minimum=1)
+            page_size_int = min(int_query_param(page_size, "page_size", minimum=0) if page_size else 24, 100)
 
             result = list_products_in_category(
                 channel_idx=channel_idx, category_idx=idx, search=search, page=page_int, page_size=page_size_int
@@ -94,8 +95,8 @@ class ProductInCategoryViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except ProductCategory.DoesNotExist:
             raise drf_exceptions.NotFound(f"Category '{idx}' not found in channel '{channel_idx}'") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -141,7 +142,7 @@ class ProductInCategoryViewSet(viewsets.ViewSet):
             ProductInCategory.DoesNotExist,
         ):
             raise drf_exceptions.NotFound("Not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)

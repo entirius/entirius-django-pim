@@ -7,10 +7,11 @@ import hashlib
 from django.conf import settings
 from django.db import models
 from django.db.models.constraints import UniqueConstraint
-from idx_normalizator import normalize_url_key, validate_idx, validate_url_key
+from idx_normalizator import normalize_url_key, validate_url_key
 from slugify import slugify
 
 from django_pim.settings import IS_DEFAULT_LANG_FOR_CHANNELS_FROM_PIM, T9N_DEFAULT_LANG
+from django_pim.validators import validate_idx
 
 
 class ProductCategoryManager(models.Manager):

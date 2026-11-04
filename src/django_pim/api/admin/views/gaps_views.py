@@ -25,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....schemas import (
     CreateGapDefinitionRequest,
     CreateGapExemptionRequest,
@@ -55,7 +56,7 @@ from ....services import (
     update_gap_definition,
     update_gaps_settings,
 )
-from ..errors import internal_error, query_param_error
+from ..errors import internal_error, query_param_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -132,8 +133,8 @@ class GapDefinitionViewSet(viewsets.ViewSet):
                 results=results,
             )
             return Response(response_data.model_dump(), status=status.HTTP_200_OK)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -169,8 +170,8 @@ class GapDefinitionViewSet(viewsets.ViewSet):
                 display_order=data.display_order,
             )
             return Response(_gap_definition_response(definition).model_dump(), status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -188,8 +189,8 @@ class GapDefinitionViewSet(viewsets.ViewSet):
             return Response(_gap_definition_response(definition).model_dump(), status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
             raise drf_exceptions.NotFound(f"Gap definition '{key}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -277,8 +278,8 @@ class GapFindingViewSet(viewsets.ViewSet):
                 for pk, findings in grouped.items()
             }
             return Response(GapFindingsBulkResponse(results=results).model_dump(), status=status.HTTP_200_OK)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -333,10 +334,10 @@ class GapExemptionViewSet(viewsets.ViewSet):
             exemptions = list_exemptions(channel_idx=channel_idx, sku=sku)
             payload = GapExemptionListResponse(results=[_gap_exemption_response(e) for e in exemptions])
             return Response(payload.model_dump(), status=status.HTTP_200_OK)
-        except ObjectDoesNotExist as e:
-            raise drf_exceptions.NotFound(str(e)) from e
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except ObjectDoesNotExist:
+            raise drf_exceptions.NotFound("Not found") from None
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -362,10 +363,10 @@ class GapExemptionViewSet(viewsets.ViewSet):
                 created_by=request.user if request.user.is_authenticated else None,
             )
             return Response(_gap_exemption_response(exemption).model_dump(), status=status.HTTP_201_CREATED)
-        except ObjectDoesNotExist as e:
-            raise drf_exceptions.NotFound(str(e)) from e
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except ObjectDoesNotExist:
+            raise drf_exceptions.NotFound("Not found") from None
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -374,8 +375,8 @@ class GapExemptionViewSet(viewsets.ViewSet):
         try:
             delete_exemption(channel_idx=channel_idx, exemption_id=pk)
             return Response({"detail": f"Gap exemption {pk} deleted"}, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist as e:
-            raise drf_exceptions.NotFound(str(e)) from e
+        except ObjectDoesNotExist:
+            raise drf_exceptions.NotFound("Not found") from None
         except Exception as e:
             return internal_error(e)
 

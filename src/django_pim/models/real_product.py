@@ -8,10 +8,10 @@ from django.db import models
 from django.db.models import UniqueConstraint
 from django.db.models.functions import Lower
 from django_utils.managers.enhance_manager import EnhanceManager
-from idx_normalizator import normalize_sku, validate_ean, validate_sku
+from idx_normalizator import normalize_sku
 from int_enum_choices import IntEnumChoices
 
-from django_pim.validators import validate_routable_sku
+from django_pim.validators import validate_ean, validate_routable_sku, validate_sku
 
 
 class KindOfProductEnum(IntEnum):

@@ -24,6 +24,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 if TYPE_CHECKING:
     from ....models import FilesCategory
+from ....exceptions import InvalidRequestError
 from ....schemas.requests.files_category import CreateFilesCategoryRequest, UpdateFilesCategoryRequest
 from ....schemas.responses.files_category import FilesCategoryListResponse, FilesCategoryResponse
 from ....services.files_category_service import (
@@ -34,7 +35,7 @@ from ....services.files_category_service import (
     resolve_files_category_name,
     update_files_category,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -152,8 +153,8 @@ class FilesCategoryViewSet(viewsets.ViewSet):
         try:
             cat = create_files_category(code=data.code, name_t9n=data.name_t9n)
             return Response(_build_category_response(cat).model_dump(), status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

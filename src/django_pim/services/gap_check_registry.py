@@ -23,6 +23,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from ..exceptions import InvalidRequestError
 from ..models import Feature, FeatureScopeEnum, PictureRoleEnum, Product
 from ..models.gap_definition import GapCheck
 from ..settings import DESCRIPTION_FEATURE_IDXS
@@ -233,7 +234,7 @@ def get_check(check_key: str) -> Check:
     """Return the registered check or raise ValueError for an unknown key."""
     check = _REGISTRY.get(str(check_key))
     if check is None:
-        raise ValueError(f"Unknown gap check_key: {check_key!r}")
+        raise InvalidRequestError(f"Unknown gap check_key: {check_key!r}")
     return check
 
 
@@ -252,21 +253,21 @@ def validate_params(check_key: str, params: dict | None) -> None:
     params = params or {}
     invalid = set(params) - check.allowed_params
     if invalid:
-        raise ValueError(f"Invalid params for {check_key}: {sorted(invalid)}")
+        raise InvalidRequestError(f"Invalid params for {check_key}: {sorted(invalid)}")
     key = str(check_key)
     if key in _FEATURE_CHECKS and not params.get("feature_idx"):
-        raise ValueError(f"{check_key} requires a non-empty 'feature_idx'")
+        raise InvalidRequestError(f"{check_key} requires a non-empty 'feature_idx'")
     if key == GapCheck.FEATURE_MIN_LENGTH.value:
         min_length = params.get("min_length")
         if not isinstance(min_length, int) or isinstance(min_length, bool) or min_length < 1:
-            raise ValueError("feature_min_length requires a positive integer 'min_length'")
+            raise InvalidRequestError("feature_min_length requires a positive integer 'min_length'")
     if key == GapCheck.PICTURE_MIN_COUNT.value:
         min_count = params.get("min_count")
         if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 1:
-            raise ValueError("picture_min_count requires a positive integer 'min_count'")
+            raise InvalidRequestError("picture_min_count requires a positive integer 'min_count'")
     role = params.get("role")
     if role is not None and str(role).strip().upper() not in PictureRoleEnum.__members__:
-        raise ValueError(f"Unknown picture role: {role!r}")
+        raise InvalidRequestError(f"Unknown picture role: {role!r}")
 
 
 def needs_feature_idxs(params: dict | None, check_key: str) -> str | None:

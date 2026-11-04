@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Attribute, Feature
 from ....schemas import AttributeListResponse, AttributeResponse
 from ....schemas.requests import AttributeReorderRequest, CreateAttributeRequest, UpdateAttributeRequest
@@ -29,7 +30,7 @@ from ....services import (
     resolve_attribute_name,
     update_attribute,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -200,8 +201,8 @@ class AttributeViewSet(viewsets.ViewSet):
             return Response(response_data.model_dump(), status=status.HTTP_201_CREATED)
         except Feature.DoesNotExist:
             raise drf_exceptions.NotFound(f"Feature '{data.feature_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

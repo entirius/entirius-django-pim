@@ -16,6 +16,7 @@ from django.core.files import File
 from django.db import transaction
 from django.db.models import QuerySet
 
+from ..exceptions import InvalidRequestError
 from ..models import Channel, Picture, PictureRoleEnum, Product, ProductPicture
 from ..utils.temp_suffix import safe_temp_suffix
 from .lookup_provider import touch_real_product as _touch_real_product
@@ -41,7 +42,9 @@ def _resolve_role_enum(role_str: str) -> int:
     """Convert API role label to enum int value."""
     role = ROLE_API_TO_ENUM.get(role_str.lower())
     if role is None:
-        raise ValueError(f"Invalid picture role: '{role_str}'. Valid roles: {', '.join(ROLE_API_TO_ENUM.keys())}")
+        raise InvalidRequestError(
+            f"Invalid picture role: '{role_str}'. Valid roles: {', '.join(ROLE_API_TO_ENUM.keys())}"
+        )
     return role
 
 
@@ -54,7 +57,7 @@ def _resolve_language(language_iso2: str | None):
     try:
         return Language.objects.get(iso2=language_iso2.upper())
     except Language.DoesNotExist:
-        raise ValueError(f"Language '{language_iso2}' not found") from None
+        raise InvalidRequestError(f"Language '{language_iso2}' not found") from None
 
 
 @transaction.atomic

@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel, Product, ProductLink, ProductLinkType
 from ....schemas.requests.product_link import CreateProductLinkRequest, UpdateProductLinkRequest
 from ....schemas.responses.product_link import LinkedProductBriefResponse, ProductLinkListResponse, ProductLinkResponse
@@ -29,7 +30,7 @@ from ....services.product_link_service import (
     update_product_link,
 )
 from ....services.product_link_type_service import resolve_product_link_type_name
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -207,8 +208,8 @@ class ProductLinkViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Product not found in channel '{channel_idx}'") from None
         except ProductLinkType.DoesNotExist:
             raise drf_exceptions.NotFound(f"Link type '{data.link_type_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -255,8 +256,8 @@ class ProductLinkViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"ProductLink with pk {pk} not found") from None
         except ProductLinkType.DoesNotExist:
             raise drf_exceptions.NotFound(f"Link type '{data.link_type_idx}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

@@ -12,6 +12,7 @@ isolated from API and model layers.
 from django.db.models import Count, Q, QuerySet
 
 from .. import settings
+from ..exceptions import InvalidRequestError
 from ..models import AttributesGroup, Channel
 
 # Maps API ordering params to actual DB field paths.
@@ -137,7 +138,7 @@ def resolve_attributes_group_name(group: AttributesGroup, language: str | None =
 def create_attributes_group(idx: str, name_t9n: dict, desc: str = "") -> AttributesGroup:
     """Create a new attributes group."""
     if AttributesGroup.objects.filter(idx=idx).exists():
-        raise ValueError(f"AttributesGroup with idx '{idx}' already exists")
+        raise InvalidRequestError(f"AttributesGroup with idx '{idx}' already exists")
     group = AttributesGroup(idx=idx, name_t9n=name_t9n, desc=desc)
     group.save()
     return AttributesGroup.objects.annotate(attribute_count=Count("attributes")).get(pk=group.pk)

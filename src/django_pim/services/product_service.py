@@ -15,7 +15,7 @@ from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 
-from ..exceptions import RequiredFeaturesMissingError, UnresolvedAttributesError
+from ..exceptions import InvalidRequestError, RequiredFeaturesMissingError, UnresolvedAttributesError
 from ..models import (
     Channel,
     FeatureScopeEnum,
@@ -335,7 +335,7 @@ def create_product(
     feature_set = FeatureSet.objects.get(idx=feature_set_idx)
 
     if Product.objects.filter(shop=channel, real_product__sku=sku).exists():
-        raise ValueError(f"Product with SKU '{sku}' already exists in channel '{channel_idx}'")
+        raise InvalidRequestError(f"Product with SKU '{sku}' already exists in channel '{channel_idx}'")
 
     plan = plan_product_attributes(attributes or [])
     if _flag(strict, STRICT_CREATE_SETTING):

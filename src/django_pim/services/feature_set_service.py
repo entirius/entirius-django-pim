@@ -12,6 +12,7 @@ isolated from API and model layers.
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
 
+from ..exceptions import InvalidRequestError
 from ..models import AttributesGroup, Channel, Feature, FeatureInFeatureSet, FeatureScopeEnum, FeatureSet
 from . import gap_rule_service
 
@@ -186,7 +187,7 @@ def create_feature_set(idx: str, name: str = "", desc: str = "", is_default: boo
             gap_rule_service.mark_rules_changed()
         return fs
     except IntegrityError:
-        raise ValueError(f"Feature set with idx '{idx}' already exists") from None
+        raise InvalidRequestError(f"Feature set with idx '{idx}' already exists") from None
 
 
 def update_feature_set(idx: str, **fields: object) -> FeatureSet:
@@ -243,7 +244,7 @@ def bulk_add_features_to_set(feature_set_idx: str, features: list[dict]) -> list
             with transaction.atomic():
                 fifs.save()
         except IntegrityError:
-            raise ValueError(f"Feature '{entry['feature_idx']}' already in set '{feature_set_idx}'") from None
+            raise InvalidRequestError(f"Feature '{entry['feature_idx']}' already in set '{feature_set_idx}'") from None
         results.append(fifs)
     return results
 

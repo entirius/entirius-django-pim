@@ -8,11 +8,11 @@ from enum import IntEnum
 from django.conf import settings
 from django.db import models
 from django.db.models import Count, F, Prefetch, Q
-from idx_normalizator import validate_idx
 from int_enum_choices import IntEnumChoices
 from slugify import slugify
 
 from django_pim.models.feature import Feature
+from django_pim.validators import validate_idx
 
 
 class Attribute(models.Model):

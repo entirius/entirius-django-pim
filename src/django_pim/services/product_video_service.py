@@ -11,6 +11,7 @@ CRUD operations for product video assignments (YouTube/Vimeo URLs).
 from django.db import transaction
 from django.db.models import QuerySet
 
+from ..exceptions import InvalidRequestError
 from ..models import Channel, Product, ProductVideo, Video
 from ..models.product_video import VideoRoleEnum
 
@@ -29,7 +30,9 @@ def _resolve_role_enum(role_str: str) -> int:
     """Convert API role label to enum int value."""
     role = ROLE_API_TO_ENUM.get(role_str.lower())
     if role is None:
-        raise ValueError(f"Invalid video role: '{role_str}'. Valid roles: {', '.join(ROLE_API_TO_ENUM.keys())}")
+        raise InvalidRequestError(
+            f"Invalid video role: '{role_str}'. Valid roles: {', '.join(ROLE_API_TO_ENUM.keys())}"
+        )
     return role
 
 
@@ -42,7 +45,7 @@ def _resolve_language(language_iso2: str | None):
     try:
         return Language.objects.get(iso2=language_iso2.upper())
     except Language.DoesNotExist:
-        raise ValueError(f"Language '{language_iso2}' not found") from None
+        raise InvalidRequestError(f"Language '{language_iso2}' not found") from None
 
 
 def list_product_videos(

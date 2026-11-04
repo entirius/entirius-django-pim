@@ -11,6 +11,7 @@ CRUD operations for product-to-product links (related, crosssell, upsell, etc.).
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
+from ..exceptions import InvalidRequestError
 from ..models import Channel, Product, ProductLink, ProductLinkType
 from ..settings import SYSTEM_FEATURE_NAME_IDX
 
@@ -31,9 +32,9 @@ def _is_duplicate(link: ProductLink) -> bool:
     return others.exclude(pk=link.pk).exists()
 
 
-def _duplicate_error(sku: str, link: ProductLink) -> ValueError:
+def _duplicate_error(sku: str, link: ProductLink) -> InvalidRequestError:
     linked_sku = link.linked_product.real_product.sku
-    return ValueError(f"Product link already exists: {sku} → {linked_sku} ({link.link_type.idx})")
+    return InvalidRequestError(f"Product link already exists: {sku} → {linked_sku} ({link.link_type.idx})")
 
 
 def _save_unique(sku: str, link: ProductLink) -> None:
@@ -126,7 +127,7 @@ def create_product_link(
     link_type = ProductLinkType.objects.get(idx=link_type_idx)
 
     if product.pk == linked_product.pk:
-        raise ValueError("Cannot link a product to itself")
+        raise InvalidRequestError("Cannot link a product to itself")
 
     link = ProductLink(product=product, linked_product=linked_product, link_type=link_type, position=position)
     _save_unique(sku, link)
@@ -144,7 +145,7 @@ def update_product_link(channel_idx: str, sku: str, pk: int, **fields: object) -
     """
     invalid = set(fields) - _EDITABLE_FIELDS
     if invalid:
-        raise ValueError(f"Fields not editable via update_product_link: {sorted(invalid)}")
+        raise InvalidRequestError(f"Fields not editable via update_product_link: {sorted(invalid)}")
     channel = Channel.objects.get(idx=channel_idx)
     product = Product.objects.select_related("real_product").get(shop=channel, real_product__sku__iexact=sku)
     link = ProductLink.objects.get(product=product, pk=pk)

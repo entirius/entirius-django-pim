@@ -118,6 +118,11 @@ Layer rule: `API → Services → Models → DB`. No ORM in views.
 
 Errors: admin views raise DRF exceptions (`NotFound`, `ValidationError`, `api/admin/errors.py` `Conflict` and
 `query_param_error`) and the service's v2 handler builds the envelope; never return an error as `{"detail": ...}`.
+A service refusal meant for the client is an `InvalidRequestError` (`exceptions.py`, a `ClientError` and a
+`ValueError`); views catch only that type and answer its `client_message` (`raise_client_error(e)`, or
+`raise_client_error(e, Conflict)` for a 409). Never `except ValueError` and `str(e)` in a view (CodeQL
+`py/stack-trace-exposure`): any other exception is a 500. `validators.py` wraps the `idx_normalizator` checks so a bad
+idx, SKU or EAN stays a 400; integer query parameters go through `int_query_param()`.
 Only `internal_error()` (500, `debug_id` = logged `error_id`) and `validation_error_response()` (product create's
 own issue codes) build an envelope by hand. `tests/settings.py` points DRF at the v2 handler, so tests see what the
 service answers.
@@ -155,7 +160,7 @@ own gate (`PimSettings.gaps_enabled`), Redis keys and Celery tasks.
 - RealProduct fields (weight, EAN, dimensions) are shared -- updating affects all channels
 - `T9N_DEFAULT_LANG` defaults to `"en"` -- affects name resolution fallback
 - 13 system features (pk 1-13) are auto-created by CSV importer -- do NOT duplicate in FeatureInFeatureSet fixtures
-- SYSTEM features are protected via API -- cannot change scope, feature_type, or is_required; cannot delete. Service layer raises ValueError, views return 400
+- SYSTEM features are protected via API -- cannot change scope, feature_type, or is_required; cannot delete. Service layer raises InvalidRequestError (a ValueError), views return 400
 - GLOBAL scope (2) is deprecated -- data migration 0056 converts existing GLOBAL features to BUSINESS_UNIT. API blocks scope=1 (schema) and scope=2 (service layer)
 - Managers in `managers/` are legacy import utilities (cached, stateful) -- v2 admin API uses `services/` only
 - Feature type TEXT (5) columns don't use language suffix; TEXT_T9N (6) DO use suffix

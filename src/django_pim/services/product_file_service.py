@@ -16,6 +16,7 @@ from django.core.files import File
 from django.db import transaction
 from django.db.models import QuerySet
 
+from ..exceptions import InvalidRequestError
 from ..models import Channel, Files, FilesCategory, Product, ProductFile
 from ..models.files import FileRoleEnum
 from ..utils.temp_suffix import safe_temp_suffix
@@ -59,7 +60,9 @@ def _resolve_file_type(file_type_str: str | None) -> int:
         return FileRoleEnum.UNDEFINED
     ft = FILE_TYPE_MAP.get(file_type_str.lower())
     if ft is None:
-        raise ValueError(f"Invalid file type: '{file_type_str}'. Valid types: {', '.join(FILE_TYPE_MAP.keys())}")
+        raise InvalidRequestError(
+            f"Invalid file type: '{file_type_str}'. Valid types: {', '.join(FILE_TYPE_MAP.keys())}"
+        )
     return ft
 
 
@@ -197,7 +200,7 @@ def link_file_to_product(channel_idx: str, sku: str, file_pk: int) -> ProductFil
     file = Files.objects.get(pk=file_pk)
 
     if ProductFile.objects.filter(product=product, file=file).exists():
-        raise ValueError(f"File {file_pk} is already linked to product '{sku}'")
+        raise InvalidRequestError(f"File {file_pk} is already linked to product '{sku}'")
 
     pf = ProductFile.objects.create(product=product, file=file)
     return ProductFile.objects.select_related("file__file_category").get(pk=pf.pk)

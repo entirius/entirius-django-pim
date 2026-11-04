@@ -11,6 +11,7 @@ CRUD operations for configurable product link types.
 from django.db.models import Q, QuerySet
 
 from .. import settings
+from ..exceptions import InvalidRequestError
 from ..models import ProductLinkType
 
 # Maps API ordering params to actual DB field paths.
@@ -74,7 +75,7 @@ def resolve_product_link_type_name(link_type: ProductLinkType, language: str | N
 def create_product_link_type(idx: str, name_t9n: dict, position: int = 0, desc: str = "") -> ProductLinkType:
     """Create a new product link type."""
     if ProductLinkType.objects.filter(idx=idx).exists():
-        raise ValueError(f"ProductLinkType with idx '{idx}' already exists")
+        raise InvalidRequestError(f"ProductLinkType with idx '{idx}' already exists")
 
     return ProductLinkType.objects.create(idx=idx, name_t9n=name_t9n, position=position, desc=desc)
 

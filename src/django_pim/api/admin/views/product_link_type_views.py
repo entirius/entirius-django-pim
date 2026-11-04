@@ -24,6 +24,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 if TYPE_CHECKING:
     from ....models import ProductLinkType
+from ....exceptions import InvalidRequestError
 from ....schemas.requests.product_link_type import CreateProductLinkTypeRequest, UpdateProductLinkTypeRequest
 from ....schemas.responses.product_link_type import ProductLinkTypeListResponse, ProductLinkTypeResponse
 from ....services.product_link_type_service import (
@@ -34,7 +35,7 @@ from ....services.product_link_type_service import (
     resolve_product_link_type_name,
     update_product_link_type,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -154,8 +155,8 @@ class ProductLinkTypeViewSet(viewsets.ViewSet):
         try:
             lt = create_product_link_type(idx=data.idx, name_t9n=data.name_t9n, position=data.position, desc=data.desc)
             return Response(_build_link_type_response(lt).model_dump(), status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

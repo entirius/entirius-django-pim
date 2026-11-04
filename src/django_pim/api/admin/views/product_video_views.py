@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from ....exceptions import InvalidRequestError
 from ....models import Channel, Product, ProductVideo, Video
 from ....models.product_video import VideoRole
 from ....schemas.requests.product_video import CreateProductVideoRequest, UpdateProductVideoRequest
@@ -28,7 +29,7 @@ from ....services.product_video_service import (
     list_product_videos,
     update_product_video,
 )
-from ..errors import internal_error
+from ..errors import internal_error, raise_client_error
 from ..pagination import AdminPageNumberPagination
 from ..permissions import IsAdminUser
 
@@ -215,8 +216,8 @@ class ProductVideoViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Channel '{channel_idx}' not found") from None
         except Product.DoesNotExist:
             raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 
@@ -261,8 +262,8 @@ class ProductVideoViewSet(viewsets.ViewSet):
             raise drf_exceptions.NotFound(f"Product with SKU '{sku}' not found in channel '{channel_idx}'") from None
         except ProductVideo.DoesNotExist:
             raise drf_exceptions.NotFound(f"ProductVideo with pk {pk} not found") from None
-        except ValueError as e:
-            raise drf_exceptions.ValidationError(str(e)) from e
+        except InvalidRequestError as e:
+            raise_client_error(e)
         except Exception as e:
             return internal_error(e)
 

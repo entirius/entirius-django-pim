@@ -11,6 +11,7 @@ from django.db.models import OuterRef, Subquery
 from django_utils.api.responses import ErrorInfo
 
 from django_pim import settings
+from django_pim.exceptions import InvalidRequestError
 from django_pim.models.attribute import Attribute, AttributeModifier, AttributeModifierTypeEnum
 from django_pim.models.attributes_group import AttributesGroup
 from django_pim.models.feature import Feature
@@ -765,55 +766,55 @@ class ProductAttribute(models.Model):
         feature_type = self.feature.feature_type
         if feature_type == FeatureTypeEnum.BOOL:
             if self.value_bool is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_bool can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type == FeatureTypeEnum.DECIMAL:
             if self.value_decimal is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_decimal can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type in [FeatureTypeEnum.TEMPERATURE, FeatureTypeEnum.LENGTH, FeatureTypeEnum.MASS]:
             if self.value_decimal is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_decimal can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type in [FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT]:
             if self.value_txt is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_txt can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type in [FeatureTypeEnum.VARCHAR255_T9N, FeatureTypeEnum.TEXT_T9N]:
             if self.value_txt_t9n is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_txt_t9n can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type == FeatureTypeEnum.JSON:
             if self.value_json is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_json can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type in [FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT]:
             if self.attribute is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"attribute can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type == FeatureTypeEnum.JSON_T9N:
             if self.value_json is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_json can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
         if feature_type == FeatureTypeEnum.DATETIME:
             if self.value_datetime is None:
-                raise ValueError(
+                raise InvalidRequestError(
                     f"value_datetime can not be None for Product sku={self.product.sku} and Feature idx={self.feature.idx}"
                 )
             return
@@ -823,18 +824,18 @@ class ProductAttribute(models.Model):
         if self.attribute is None:
             return
         if self.feature != self.attribute.feature:
-            raise ValueError(
+            raise InvalidRequestError(
                 f"ProductAttribute: attribute={self.attribute.idx} does not belong to feature={self.feature.idx}"
             )
         if self.product.feature_set is None:
-            raise ValueError(
+            raise InvalidRequestError(
                 f"ProductAttribute: product sku={self.product.sku} doesnt have FeatureSet so can not have ProductAttributes"
             )
         if (
             self.feature.scope != FeatureScopeEnum.SYSTEM
             and self.feature not in self.product.feature_set.features.all()
         ):
-            raise ValueError(
+            raise InvalidRequestError(
                 f"ProductAttribute: Feature={self.feature.idx} does not belong to Product sku={self.product.sku} FeatureSet={self.product.feature_set.idx}"
             )
 

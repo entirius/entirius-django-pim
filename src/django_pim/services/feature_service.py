@@ -13,6 +13,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 
 from .. import settings
+from ..exceptions import InvalidRequestError
 from ..models import Channel, Feature, FeatureScopeEnum
 from ..schemas.responses.feature import FeatureResponse
 
@@ -210,11 +211,11 @@ def create_feature(
 ) -> Feature:
     """Create a new feature. Raises ValueError on duplicate idx or validation errors."""
     if scope == FeatureScopeEnum.SYSTEM:
-        raise ValueError(
+        raise InvalidRequestError(
             "Cannot create features with SYSTEM scope via API. System features are managed by the import pipeline."
         )
     if scope == FeatureScopeEnum.GLOBAL:
-        raise ValueError("GLOBAL scope is deprecated. Use BUSINESS_UNIT (3) instead.")
+        raise InvalidRequestError("GLOBAL scope is deprecated. Use BUSINESS_UNIT (3) instead.")
     try:
         f = Feature(
             idx=idx,
@@ -239,7 +240,7 @@ def create_feature(
             f.save()
         return f
     except IntegrityError:
-        raise ValueError(f"Feature with idx '{idx}' already exists") from None
+        raise InvalidRequestError(f"Feature with idx '{idx}' already exists") from None
 
 
 def update_feature(idx: str, **fields: object) -> Feature:
@@ -250,7 +251,7 @@ def update_feature(idx: str, **fields: object) -> Feature:
     if f.scope == FeatureScopeEnum.SYSTEM:
         violations = SYSTEM_PROTECTED_FIELDS & set(fields.keys())
         if violations:
-            raise ValueError(
+            raise InvalidRequestError(
                 f"Cannot modify {', '.join(sorted(violations))} on system feature '{idx}'. "
                 f"System features are managed by the import pipeline."
             )
@@ -258,9 +259,9 @@ def update_feature(idx: str, **fields: object) -> Feature:
     # Block changing any feature's scope TO SYSTEM or TO GLOBAL
     if "scope" in fields:
         if fields["scope"] == FeatureScopeEnum.SYSTEM:
-            raise ValueError("Cannot set scope to SYSTEM via API.")
+            raise InvalidRequestError("Cannot set scope to SYSTEM via API.")
         if fields["scope"] == FeatureScopeEnum.GLOBAL:
-            raise ValueError("GLOBAL scope is deprecated. Use BUSINESS_UNIT (3) instead.")
+            raise InvalidRequestError("GLOBAL scope is deprecated. Use BUSINESS_UNIT (3) instead.")
 
     for field, value in fields.items():
         if value is not None:
@@ -273,7 +274,9 @@ def delete_feature(idx: str) -> dict:
     """Delete a feature. Returns count of deleted objects by model."""
     f = Feature.objects.get(idx=idx)
     if f.scope == FeatureScopeEnum.SYSTEM:
-        raise ValueError(f"Cannot delete system feature '{idx}'. System features are managed by the import pipeline.")
+        raise InvalidRequestError(
+            f"Cannot delete system feature '{idx}'. System features are managed by the import pipeline."
+        )
     _, deleted_detail = f.delete()
     result = {}
     for key, count in deleted_detail.items():

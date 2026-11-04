@@ -120,10 +120,10 @@ Every error is the API v2 envelope, built by the service's v2 exception handler 
 
 | HTTP | `error` | `message` | `details[]` |
 |------|---------|-----------|-------------|
-| `400` | `VALIDATION_ERROR` | `Request validation failed.` (create with required features: its own) | one entry per problem; a service rule (duplicate `idx`, SYSTEM feature) has `field: null` and the text in `description`; `product_ids` and `sku` (gaps), `scope` and `feature_type` (features), `parent_category` (categories) name the parameter with `location: "query"` |
+| `400` | `VALIDATION_ERROR` | `Request validation failed.` (create with required features: its own) | one entry per problem; a service rule (duplicate `idx`, SYSTEM feature) has `field: null` and the text in `description`; `product_ids` and `sku` (gaps), `scope` and `feature_type` (features), `parent_category` (categories), `visibility` and `product_class` (products), `page` (≥ 1) and `page_size` (≥ 0) (category products) name the parameter with `location: "query"` |
 | `404` | `NOT_FOUND` | `The requested resource was not found.` | empty |
 | `409` | `CONFLICT` | the conflict, e.g. `Product with SKU 'X' already exists in channel 'y'` | empty |
-| `500` | `INTERNAL_ERROR` | `An internal error occurred.` | empty; `debug_id` is the `error_id` of the server log line |
+| `500` | `INTERNAL_ERROR` | `An internal error occurred.` | empty; `debug_id` is the `error_id` of the server log line; an exception the PIM did not raise as a refusal never puts its text in the body |
 
 The legacy alias `/api/pim/admin/` serves the same views with the same status codes, but the service's handler for
 non-v2 paths formats what they raise (in the Volkanos service contentdb's `{meta, data}`, e.g. `data: ["..."]` for a

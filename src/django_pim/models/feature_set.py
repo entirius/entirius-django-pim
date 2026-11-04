@@ -4,7 +4,9 @@
 
 from django.db import models
 from django.db.models import Max, Q
-from idx_normalizator import validate_idx
+
+from django_pim.exceptions import InvalidRequestError
+from django_pim.validators import validate_idx
 
 
 class FeatureSetManager(models.Manager):
@@ -108,7 +110,7 @@ class FeatureInFeatureSet(models.Model):
         from .feature import FeatureScopeEnum
 
         if self.is_required is not None and self.feature.scope == FeatureScopeEnum.SYSTEM:
-            raise ValueError(f"Cannot override is_required on system feature '{self.feature.idx}'")
+            raise InvalidRequestError(f"Cannot override is_required on system feature '{self.feature.idx}'")
 
     def save(self, *args, **kwargs):
         self.validate_override()

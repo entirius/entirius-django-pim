@@ -5,7 +5,9 @@
 import re
 
 from django.db import models, transaction
-from idx_normalizator import normalize_idx, validate_idx
+from idx_normalizator import normalize_idx
+
+from django_pim.validators import validate_idx
 
 IDX_ALLOWED_CHARS_PATTERN = re.compile(r"[^-a-z0-9_]+")
 
