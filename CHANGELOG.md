@@ -4,6 +4,8 @@
 
 ### Added
 
+- Enrichment: `attribute_value` proposals apply to LENGTH features as `{"value": "6.5", "unit": "inch"}`. The value is
+  converted on write and stored in `DEFAULT_LENGTH_UNIT`, rounded to `UNIT_CONVERSION_DECIMAL_PLACES`.
 - Enrichment: `attribute_value` proposals now apply to DECIMAL and BOOL (`{"value": ...}`) and to VARCHAR255 and TEXT
   (`{"text": ...}`). `read_current` returns the same shapes; an empty value is restore-only, so only revert removes the
   row. A decimal reads back in plain digits, so a stored 12.500000 and a proposed 12.5 are not drift.

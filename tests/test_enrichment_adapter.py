@@ -12,9 +12,8 @@ read-merge-write (never lose sibling languages) and inheritance-aware override.
 import io
 import json
 import os
-from unittest import mock
-
 from decimal import Decimal
+from unittest import mock
 
 import pytest
 from django.core.exceptions import ObjectDoesNotExist
@@ -194,6 +193,43 @@ class TestScalarValues:
         enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R3", {"value": "9"}))
 
         enrichment_adapter.revert(_scalar_proposal(channel, "SKU-R3", {"value": "9"}, current_snapshot=before))
+
+        assert not ProductAttribute.objects.filter(product=product, feature=feature).exists()
+
+    def test_a_length_in_inches_is_stored_in_millimetres(self):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-L1", FeatureTypeEnum.LENGTH)
+
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-L1", {"value": "6.5", "unit": "inch"}))
+
+        assert ProductAttribute.objects.get(product=product, feature=feature).value_decimal == Decimal("165.1")
+        assert _read_scalar(channel, "SKU-L1") == {"value": "165.1"}
+
+    def test_a_length_in_millimetres_is_stored_exactly(self):
+        channel = ChannelFactory(is_default=True)
+        _scalar_product(channel, "SKU-L2", FeatureTypeEnum.LENGTH)
+
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-L2", {"value": "165.123", "unit": "mm"}))
+
+        assert _read_scalar(channel, "SKU-L2") == {"value": "165.123"}
+
+    def test_a_length_with_no_unit_is_the_base_unit_so_revert_restores_it(self):
+        channel = ChannelFactory(is_default=True)
+        _scalar_product(channel, "SKU-L3", FeatureTypeEnum.LENGTH)
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-L3", {"value": "6.5", "unit": "inch"}))
+        before = _read_scalar(channel, "SKU-L3")
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-L3", {"value": "200", "unit": "mm"}))
+
+        enrichment_adapter.revert(_scalar_proposal(channel, "SKU-L3", {"value": "200"}, current_snapshot=before))
+
+        assert _read_scalar(channel, "SKU-L3") == {"value": "165.1"}
+
+    def test_a_length_in_an_unknown_unit_is_refused_and_writes_nothing(self):
+        channel = ChannelFactory(is_default=True)
+        product, feature = _scalar_product(channel, "SKU-L4", FeatureTypeEnum.LENGTH)
+
+        with pytest.raises(ValueError, match="has no unit 'parsec'"):
+            enrichment_adapter.apply(_scalar_proposal(channel, "SKU-L4", {"value": "1", "unit": "parsec"}))
 
         assert not ProductAttribute.objects.filter(product=product, feature=feature).exists()
 

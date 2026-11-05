@@ -110,6 +110,7 @@ from django.db.models.functions import RowNumber
 from django.utils.html import strip_tags
 from PIL import Image
 
+from .. import settings as pim_settings
 from ..models import (
     Attribute,
     Channel,
@@ -157,8 +158,9 @@ _MODE_REPLACE = "replace"
 _T9N_TEXT_TYPES = frozenset({FeatureTypeEnum.VARCHAR255_T9N, FeatureTypeEnum.TEXT_T9N})
 _SELECT_TYPES = frozenset({FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT})
 # Language-neutral values: {"value": "12.5"} / {"value": true} and {"text": "..."}, one row, no per-language map.
+# A LENGTH also takes {"value": "6.5", "unit": "inch"}: it is converted on write and stored in the base unit.
 _PLAIN_TEXT_TYPES = frozenset({FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT})
-_NUMBER_TYPES = frozenset({FeatureTypeEnum.DECIMAL, FeatureTypeEnum.BOOL})
+_NUMBER_TYPES = frozenset({FeatureTypeEnum.DECIMAL, FeatureTypeEnum.BOOL, FeatureTypeEnum.LENGTH})
 _SCALAR_TYPES = _PLAIN_TEXT_TYPES | _NUMBER_TYPES
 
 # Field catalog shape per writable feature type: (type, max_length, translatable). TEXT_T9N is
@@ -572,7 +574,7 @@ def _write_attribute(target_locator: dict, *, subject_ref: str, value: dict) -> 
         _write_select(channel_idx, subject_ref=subject_ref, feature=feature, value=value)
         return
     if _scalar_key(feature) in value:
-        _write_scalar(channel_idx, subject_ref=subject_ref, feature=feature, raw=value[_scalar_key(feature)])
+        _write_scalar(channel_idx, subject_ref=subject_ref, feature=feature, value=value)
         return
     _write_text(channel_idx, subject_ref=subject_ref, feature=feature, language=language, text=value.get("text"))
 
@@ -615,21 +617,24 @@ def _reject_scalar_clear(target_locator: dict, *, value: dict) -> None:
         raise ValueError(f"apply needs a value for {feature.idx!r} (an empty value is restore-only)")
 
 
-def _write_scalar(channel_idx: str, *, subject_ref: str, feature: Feature, raw) -> None:
+def _write_scalar(channel_idx: str, *, subject_ref: str, feature: Feature, value: dict) -> None:
     """One language-neutral value; an empty one (revert only) removes the row."""
     product = product_service.get_product_by_sku(channel_idx, subject_ref)
     _require_applicable(product, feature, subject_ref)
-    if raw in (None, ""):
+    if value[_scalar_key(feature)] in (None, ""):
         ProductAttribute.objects.filter(product=product, feature=feature).delete()
         return
     product_service.update_product(
-        channel_idx, subject_ref, attributes=[{"feature_idx": feature.idx, **_scalar_field(feature, raw)}]
+        channel_idx, subject_ref, attributes=[{"feature_idx": feature.idx, **_scalar_field(feature, value)}]
     )
     _mark_overridden_if_inheriting(product, feature, None)
 
 
-def _scalar_field(feature: Feature, raw) -> dict:
-    """The attribute payload for `raw`, or ValueError: a wrong type must never reach the catalogue."""
+def _scalar_field(feature: Feature, value: dict) -> dict:
+    """The attribute payload for `value`, or ValueError: a wrong type must never reach the catalogue."""
+    raw = value[_scalar_key(feature)]
+    if feature.feature_type == FeatureTypeEnum.LENGTH:
+        return {"value_decimal": str(_length_in_base_unit(feature, raw, value.get("unit")))}
     if feature.feature_type == FeatureTypeEnum.BOOL:
         if not isinstance(raw, bool):
             raise ValueError(f"feature {feature.idx!r} expects true or false, got {raw!r}")
@@ -639,6 +644,18 @@ def _scalar_field(feature: Feature, raw) -> dict:
             raise ValueError(f"feature {feature.idx!r} expects text, got {type(raw).__name__}")
         return {"value_txt": raw}
     return {"value_decimal": str(_clean_decimal(feature, raw))}
+
+
+def _length_in_base_unit(feature: Feature, raw, unit: str | None) -> Decimal:
+    """`raw` in the base unit, to the catalogue's display precision so 6.5 inch reads back as 165.1 mm.
+    No unit means the base unit, which is what `read_current` returns and what revert writes back."""
+    number = _clean_decimal(feature, raw)
+    base_unit, length = feature.get_cls_unit_conversion()
+    if not unit or unit == base_unit:
+        return number
+    if unit not in length.conversions:
+        raise ValueError(f"feature {feature.idx!r} has no unit {unit!r}")
+    return round(Decimal(str(length(number, unit).convert(base_unit))), pim_settings.UNIT_CONVERSION_DECIMAL_PLACES)
 
 
 def _clean_decimal(feature: Feature, raw) -> Decimal:

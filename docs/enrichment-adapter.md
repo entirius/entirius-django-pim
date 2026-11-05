@@ -48,6 +48,9 @@ The bus treats these as opaque — only this adapter reads them.
 | target_kind | `target_locator` | `proposed_value` | `current_snapshot` |
 |-------------|------------------|------------------|--------------------|
 | `attribute_value` | `{"channel", "language", "feature_idx"}` | `{"text": <value for that language>}` | `{"text": <raw stored value, "" if absent>}` |
+| `attribute_value` (DECIMAL, BOOL) | `{"channel", "language", "feature_idx"}` | `{"value": "12.5"}` / `{"value": true}` | `{"value": <stored value in plain digits, or null>}` |
+| `attribute_value` (LENGTH) | `{"channel", "language", "feature_idx"}` | `{"value": "6.5", "unit": "inch"}`; no `unit` means `DEFAULT_LENGTH_UNIT` | `{"value": <stored value in DEFAULT_LENGTH_UNIT, or null>}` |
+| `attribute_value` (TEXT, VARCHAR255) | `{"channel", "language", "feature_idx"}` | `{"text": <value>}` | `{"text": <stored value, "" when none>}` |
 | `attribute_value` (select) | `{"channel", "language": null, "feature_idx"}` | `{"option": <idx>}` / `{"options": [<idx>, ...]}` | `{"option": <idx, "" if none>}` / `{"options": [<sorted idxs>]}` |
 | `picture` | `{"channel"}` | `{"op": "replace_main", "alt_t9n": {...}}` | `{"sha1", "role", "position", "alt_t9n", "url"}` of the old main, `{}` if none |
 | `picture` (derived) | `{"channel", "source_picture_ref", "operation", "variant"}` | `{"op": "derived", "operation", "preset", "variant", "of"}` | `{"ref", "sha1", "position", "alt_t9n", "url"}` of the source picture, `{}` if gone |
