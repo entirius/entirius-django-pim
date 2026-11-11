@@ -81,7 +81,7 @@ src/django_pim/
 │   └── responses/                  # Pydantic models (list/detail + nested)
 │
 ├── services/                       # Business logic
-│   ├── product_service.py          #   list, get, detail, create, update, delete, bulk_update
+│   ├── product_service.py          #   list, get, detail, create, update, clear_product_attribute, delete, bulk_update
 │   ├── category_service.py         #   list, get, detail, create, update, delete
 │   ├── feature_service.py          #   list, get, create, update, delete, resolve_name
 │   ├── feature_set_service.py      #   list, get, create, update, delete, bulk_add/remove
@@ -172,7 +172,7 @@ own gate (`PimSettings.gaps_enabled`), Redis keys and Celery tasks.
 - `DESCRIPTION_FEATURE_IDXS = {"name", "description", "short_description"}` separates description from attribute inheritance
 - **Quality Gaps rollup columns (`gap_*`) are written ONLY via `Product.objects.filter(pk=...).update(...)`** — `instance.save()` fires PIM signals → Matrix sync loop. `product_post_save` does not fire on `QuerySet.update`
 - **The gap recompute track is independent of Matrix sync** — own gate (`PimSettings.gaps_enabled`, default off, NOT `matrix_signals_enabled`), own Redis keys (`pim:gaps:*`), own tasks/queue. The highlighter recomputes even with Matrix sync off
-- **Gap applicability = FeatureSet membership, not `is_required`** — a check runs only when the feature is in the product's FeatureSet; otherwise "not applicable" (skipped), not "empty". Gap emptiness reads RAW fields, never `get_value` (which falls back across languages and masks per-language gaps)
+- **Gap applicability = FeatureSet membership, not `is_required`** — a check runs only when the feature is in the product's FeatureSet; otherwise "not applicable" (skipped), not "empty". The feature checks' `required_only` param narrows it to the sets that require the feature (effective `is_required`). Gap emptiness reads RAW fields, never `get_value` (which falls back across languages and masks per-language gaps)
 - **ProductCustom `gap_evaluated_at` stays NULL** ("unevaluated") — custom products skip attribute checks but still run `picture_present`. NULL evaluated_at = never/unevaluable; `gap_count=0` + a timestamp = genuinely clean
 - **Deep mute = zero finding rows** — a `GapExemption` makes detection skip the pair, so badges, rollups and `find_gaps` candidates all clear at once. `gap_exemption_service` re-detects the product **directly** on create/delete (sync, independent of `gaps_enabled`); the rollup still goes through the silent `.update()` inside detection
 - **`find_gaps` reads materialised findings and excludes `inherited`** — the fix belongs on the source channel; writing through enrichment on an inheriting channel would create unwanted `overridden_langs` overrides. `params` is accepted but ignored (rule params live on `GapDefinition`)

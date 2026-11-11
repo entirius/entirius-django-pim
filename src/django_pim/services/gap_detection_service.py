@@ -166,6 +166,14 @@ def _build_context(product: Product, definitions: list[GapDefinition], *, defaul
     needed_idxs = {idx for d in definitions if (idx := registry.needs_feature_idxs(d.params, d.check_key))}
     feature_by_idx = {f.idx: f for f in Feature.objects.filter(idx__in=needed_idxs)} if needed_idxs else {}
     member_feature_ids = set(product.feature_set.features.values_list("id", flat=True)) if needs_attributes else set()
+    needs_required = needs_attributes and any(
+        registry.needs_required_features(d.params, d.check_key) for d in definitions
+    )
+    required_feature_ids = (
+        set(product.feature_set.feature_in_feature_set.effective_required().values_list("feature_id", flat=True))
+        if needs_required
+        else set()
+    )
 
     pas = (
         list(
@@ -208,6 +216,7 @@ def _build_context(product: Product, definitions: list[GapDefinition], *, defaul
         values_by_lang=values_by_lang,
         feature_by_idx=feature_by_idx,
         member_feature_ids=member_feature_ids,
+        required_feature_ids=required_feature_ids,
         overridden_langs_by_idx=overridden_by_idx,
         picture_count_by_role=dict(Counter(roles)),
         total_picture_count=len(roles),

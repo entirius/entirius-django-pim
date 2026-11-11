@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Enrichment: `attribute_value` proposals apply to LENGTH features as `{"value": "6.5", "unit": "inch"}`. The value is
+  converted on write and stored in `DEFAULT_LENGTH_UNIT`, rounded to `UNIT_CONVERSION_DECIMAL_PLACES`.
+- Enrichment: `attribute_value` proposals now apply to DECIMAL and BOOL (`{"value": ...}`) and to VARCHAR255 and TEXT
+  (`{"text": ...}`). `read_current` returns the same shapes; an empty value is restore-only, so only revert removes the
+  row. A decimal reads back in plain digits, so a stored 12.500000 and a proposed 12.5 are not drift. A number
+  with more than 18 integer or 6 decimal digits is refused with `ValueError` (the column is numeric(24, 6)) instead of
+  being rounded or failing in the database.
+- Services: `product_service.clear_product_attribute(channel_idx, sku, feature_idx)` removes a product's stored value
+  of one feature. `update_product` cannot: a scalar with no value is left untouched there. It signals like an
+  attribute update (`post_save` for the Matrix sync, lookup touch, propagation from the default channel) and does
+  nothing when no row is stored. The enrichment adapter's revert of a scalar that held nothing goes through it.
+- Gaps: `feature_present` and `feature_min_length` accept an optional `required_only` param (bool). With it the
+  check applies only where the product's feature set requires the feature — the membership's `is_required`
+  override, else the feature's own flag — so one definition per feature gates exactly the sets that require it,
+  instead of every set that merely contains it. Default unchanged (membership). No migration.
+
 ## 3.7.0 — 2026-11-11
 
 ### Fixed
@@ -90,7 +110,6 @@
   published service spec, and their `/api/pim/admin/` twins) describes the object the view returns instead of an
   array of it: a page `{count, next, previous, results}`, `{results}` (gap findings keyed by product pk, gap
   exemptions), or `{positioned, unpositioned, ...}` (category products). The bodies are unchanged.
-
 
 ## 3.5.0 — 2026-10-27
 - Admin API: a page out of range (`?page=0`, past the last page) answers 404 `NOT_FOUND` in the v2 envelope
