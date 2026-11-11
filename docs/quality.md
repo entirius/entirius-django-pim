@@ -41,6 +41,7 @@ Three checks ship in the registry. Each `GapDefinition` picks one and configures
 Four correctness rules decide whether a check produces signal or noise:
 
 - **Applicability is FeatureSet membership, not `is_required`.** A check only runs when the feature is in the FeatureSet assigned to the product. If it isn't, the answer is "not applicable" — skipped, not flagged. This is what keeps false gaps out.
+- **`required_only: true`** (on `feature_present` / `feature_min_length`) narrows that to the sets that **require** the feature: the membership's `is_required` override, else `Feature.is_required`. A feature shared by many sets but required in a few is then gated only in those few.
 - **Languages are channel-served only.** "No `pl` description" is checked against the languages the channel actually serves. A rule targeting "all languages" means all of the channel's languages, not every language in the database.
 - **ProductCustom is unevaluated for attribute checks.** Custom products skip attribute-reading checks (their values come from elsewhere); `picture_present` still runs. Their `gap_evaluated_at` stays `null` — the list shows "unevaluated", not "OK".
 - **Inherited gaps point to the source.** When a product inherits an empty value from the default channel, the finding is tagged `inherited` with the channel to fix it on. The operator sees "fix on main" instead of chasing the same gap across every channel.

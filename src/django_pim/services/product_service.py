@@ -487,6 +487,32 @@ def update_product(channel_idx: str, sku: str, **fields) -> Product:
 
 
 @transaction.atomic
+def clear_product_attribute(channel_idx: str, sku: str, feature_idx: str) -> Product:
+    """Remove the product's stored value of one feature (all its rows).
+
+    `update_product` cannot do this: a scalar with no value is left untouched there (the CMS sends the whole
+    feature set), so clearing is its own operation. It signals like an attribute update: one `post_save` for
+    the Matrix sync when a row went, the lookup touch, and the propagation to inheriting channels.
+
+    Raises:
+        Channel.DoesNotExist: If channel_idx does not exist
+        Product.DoesNotExist: If product with SKU not found in shop
+    """
+    channel = Channel.objects.get(idx=channel_idx)
+    product = Product.objects.filter(shop=channel, real_product__sku=sku).select_related("real_product", "shop").get()
+    removed, _by_model = ProductAttribute.objects.filter(product=product, feature__idx=feature_idx).delete()
+    if not removed:
+        return product
+
+    from django.db.models.signals import post_save
+
+    post_save.send(sender=Product, instance=product, created=False, raw=False, update_fields=None)
+    _touch_real_product(product.real_product_id)
+    _propagate_if_default(product, {"attributes": [{"feature_idx": feature_idx}]})
+    return product
+
+
+@transaction.atomic
 def delete_product(channel_idx: str, sku: str) -> dict:
     """
     Delete a Product (channel-scoped). Does NOT delete the RealProduct.

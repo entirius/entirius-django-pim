@@ -101,6 +101,7 @@ Two non-obvious rules this adapter owns (the bus stays dumb about them):
 """
 
 import io
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
@@ -109,6 +110,7 @@ from django.db.models.functions import RowNumber
 from django.utils.html import strip_tags
 from PIL import Image
 
+from .. import settings as pim_settings
 from ..models import (
     Attribute,
     Channel,
@@ -155,6 +157,12 @@ _MODE_REPLACE = "replace"
 # `_set_product_attributes`).
 _T9N_TEXT_TYPES = frozenset({FeatureTypeEnum.VARCHAR255_T9N, FeatureTypeEnum.TEXT_T9N})
 _SELECT_TYPES = frozenset({FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT})
+# Language-neutral values: {"value": "12.5"} / {"value": true} and {"text": "..."}, one row, no per-language map.
+# A LENGTH also takes {"value": "6.5", "unit": "inch"}: it is converted on write and stored in the base unit.
+_PLAIN_TEXT_TYPES = frozenset({FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT})
+_NUMBER_TYPES = frozenset({FeatureTypeEnum.DECIMAL, FeatureTypeEnum.BOOL, FeatureTypeEnum.LENGTH})
+_SCALAR_TYPES = _PLAIN_TEXT_TYPES | _NUMBER_TYPES
+_DECIMAL_DIGITS, _DECIMAL_PLACES = 24, 6  # ProductAttribute.value_decimal: max_digits, decimal_places
 
 # Field catalog shape per writable feature type: (type, max_length, translatable). TEXT_T9N is
 # edited as HTML in the CMS (wysiwyg), VARCHAR255_T9N as plain text capped by its column.
@@ -212,6 +220,8 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
     feature = Feature.objects.filter(idx=feature_idx).first()
     if feature is not None and feature.feature_type in _SELECT_TYPES:
         return _read_current_select(subject_ref, channel_idx, feature)
+    if feature is not None and feature.feature_type in _SCALAR_TYPES:
+        return _read_current_scalar(subject_ref, channel_idx, feature)
     try:
         product = product_service.get_product_by_sku(channel_idx, subject_ref)
     except ObjectDoesNotExist:
@@ -224,7 +234,7 @@ def read_current(*, subject_ref: str, target_kind: str, target_locator: dict) ->
 
 
 def apply(proposal) -> dict | None:
-    """Write `proposed_value` into the target (text for one language, or select/multiselect options).
+    """Write `proposed_value` into the target (text for one language, select options, or a scalar value).
 
     The ONLY place enrichment writes back to PIM. Drift is already checked by the bus
     (`apply_service.apply`) before we get here. Read-merge-write + inheritance override (see module
@@ -274,6 +284,7 @@ def apply(proposal) -> dict | None:
     _reject_inherited_select_clear(
         proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value
     )
+    _reject_scalar_clear(proposal.target_locator, value=proposal.proposed_value)
     _write_attribute(proposal.target_locator, subject_ref=proposal.subject_ref, value=proposal.proposed_value)
     return None
 
@@ -557,13 +568,112 @@ def _get_feature(feature_idx: str) -> Feature:
 
 
 def _write_attribute(target_locator: dict, *, subject_ref: str, value: dict) -> None:
-    """Shared `attribute_value` write (apply + revert): select options or one language of text."""
+    """Shared `attribute_value` write (apply + revert): select options, a scalar, or one language of text."""
     channel_idx, language, feature_idx = _locator(target_locator)
     feature = _get_feature(feature_idx)
     if feature.feature_type in _SELECT_TYPES:
         _write_select(channel_idx, subject_ref=subject_ref, feature=feature, value=value)
         return
+    if _scalar_key(feature) in value:
+        _write_scalar(channel_idx, subject_ref=subject_ref, feature=feature, value=value)
+        return
     _write_text(channel_idx, subject_ref=subject_ref, feature=feature, language=language, text=value.get("text"))
+
+
+def _scalar_key(feature: Feature) -> str | None:
+    """The `proposed_value` key of a language-neutral feature; None for every other type."""
+    if feature.feature_type in _PLAIN_TEXT_TYPES:
+        return "text"
+    return "value" if feature.feature_type in _NUMBER_TYPES else None
+
+
+def _read_current_scalar(subject_ref: str, channel_idx: str, feature: Feature) -> dict:
+    """{"value": ...} or {"text": ...}; a missing product or row reads empty, a decimal as plain digits so a
+    stored 12.500000 and a proposed 12.5 do not look like drift."""
+    key = _scalar_key(feature)
+    empty = {key: "" if key == "text" else None}
+    try:
+        product = product_service.get_product_by_sku(channel_idx, subject_ref)
+    except ObjectDoesNotExist:
+        return empty
+    attr = ProductAttribute.objects.filter(product=product, feature=feature).first()
+    if attr is None:
+        return empty
+    if key == "text":
+        return {"text": attr.value_txt or ""}
+    if feature.feature_type == FeatureTypeEnum.BOOL:
+        return {"value": attr.value_bool}
+    return {"value": None if attr.value_decimal is None else _plain_decimal(attr.value_decimal)}
+
+
+def _plain_decimal(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def _reject_scalar_clear(target_locator: dict, *, value: dict) -> None:
+    """Apply-only guard: an empty scalar would delete the row. Only revert may restore "held nothing"."""
+    feature = _get_feature(_locator(target_locator)[2])
+    key = _scalar_key(feature)
+    if key in value and value[key] in (None, ""):
+        raise ValueError(f"apply needs a value for {feature.idx!r} (an empty value is restore-only)")
+
+
+def _write_scalar(channel_idx: str, *, subject_ref: str, feature: Feature, value: dict) -> None:
+    """One language-neutral value; an empty one (revert only) removes the row."""
+    product = product_service.get_product_by_sku(channel_idx, subject_ref)
+    _require_applicable(product, feature, subject_ref)
+    if value[_scalar_key(feature)] in (None, ""):
+        product_service.clear_product_attribute(channel_idx, subject_ref, feature.idx)
+        return
+    product_service.update_product(
+        channel_idx, subject_ref, attributes=[{"feature_idx": feature.idx, **_scalar_field(feature, value)}]
+    )
+    _mark_overridden_if_inheriting(product, feature, None)
+
+
+def _scalar_field(feature: Feature, value: dict) -> dict:
+    """The attribute payload for `value`, or ValueError: a wrong type must never reach the catalogue."""
+    raw = value[_scalar_key(feature)]
+    if feature.feature_type == FeatureTypeEnum.LENGTH:
+        return {"value_decimal": str(_length_in_base_unit(feature, raw, value.get("unit")))}
+    if feature.feature_type == FeatureTypeEnum.BOOL:
+        if not isinstance(raw, bool):
+            raise ValueError(f"feature {feature.idx!r} expects true or false, got {raw!r}")
+        return {"value_bool": raw}
+    if feature.feature_type in _PLAIN_TEXT_TYPES:
+        if not isinstance(raw, str):
+            raise ValueError(f"feature {feature.idx!r} expects text, got {type(raw).__name__}")
+        return {"value_txt": raw}
+    return {"value_decimal": str(_clean_decimal(feature, raw))}
+
+
+def _length_in_base_unit(feature: Feature, raw, unit: str | None) -> Decimal:
+    """`raw` in the base unit, to the catalogue's display precision so 6.5 inch reads back as 165.1 mm.
+    No unit means the base unit, which is what `read_current` returns and what revert writes back."""
+    number = _clean_decimal(feature, raw)
+    base_unit, length = feature.get_cls_unit_conversion()
+    if not unit or unit == base_unit:
+        return number
+    if unit not in length.conversions:
+        raise ValueError(f"feature {feature.idx!r} has no unit {unit!r}")
+    return round(Decimal(str(length(number, unit).convert(base_unit))), pim_settings.UNIT_CONVERSION_DECIMAL_PLACES)
+
+
+def _clean_decimal(feature: Feature, raw) -> Decimal:
+    try:
+        number = None if isinstance(raw, bool) else Decimal(str(raw))
+    except InvalidOperation:
+        number = None
+    if number is None or not number.is_finite():
+        raise ValueError(f"feature {feature.idx!r} expects a number, got {raw!r}")
+    shape = number.normalize()
+    if shape.as_tuple().exponent < -_DECIMAL_PLACES or shape.adjusted() >= _DECIMAL_DIGITS - _DECIMAL_PLACES:
+        # `value_decimal` is numeric(24, 6): a longer value would be rounded silently or fail in the database.
+        raise ValueError(
+            f"feature {feature.idx!r} expects a number of at most {_DECIMAL_DIGITS - _DECIMAL_PLACES} integer and "
+            f"{_DECIMAL_PLACES} decimal digits, got {raw!r}"
+        )
+    return number
 
 
 def _write_text(channel_idx: str, *, subject_ref: str, feature: Feature, language: str, text) -> None:
@@ -579,8 +689,9 @@ def _write_text(channel_idx: str, *, subject_ref: str, feature: Feature, languag
         )
     if feature.feature_type not in _T9N_TEXT_TYPES:
         raise ValueError(
-            f"enrichment_adapter writes translatable text only (or select options); feature {feature.idx!r} is "
-            f"feature_type={feature.feature_type} (expected VARCHAR255_T9N, TEXT_T9N, SELECT or MULTISELECT)"
+            f"enrichment_adapter writes translatable text only here (select options and scalars have their own "
+            f"value keys); feature {feature.idx!r} is feature_type={feature.feature_type} "
+            f"(expected VARCHAR255_T9N or TEXT_T9N)"
         )
     if not isinstance(language, str) or not language:
         raise ValueError(f"translatable feature {feature.idx!r} needs a language in the locator")

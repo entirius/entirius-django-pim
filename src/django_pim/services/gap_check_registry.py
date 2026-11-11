@@ -40,6 +40,10 @@ class CheckResult:
     source_channel: str | None = None
 
 
+#: feature checks: gate only where the product's set requires the feature (see `_is_applicable`)
+REQUIRED_ONLY = "required_only"
+
+
 @dataclass
 class CheckContext:
     """Per-product state pre-fetched once by the service. Read-only for checks."""
@@ -54,6 +58,8 @@ class CheckContext:
     values_by_lang: dict[str, dict] = field(default_factory=dict)
     feature_by_idx: dict[str, Feature] = field(default_factory=dict)
     member_feature_ids: set[int] = field(default_factory=set)
+    # memberships whose effective is_required is True (filled only when a definition asks `required_only`)
+    required_feature_ids: set[int] = field(default_factory=set)
     overridden_langs_by_idx: dict[str, set] = field(default_factory=dict)
     picture_count_by_role: dict[int, int] = field(default_factory=dict)
     total_picture_count: int = 0
@@ -77,10 +83,16 @@ def _is_empty(value: object) -> bool:
     return False
 
 
-def _is_applicable(feature: Feature, ctx: CheckContext) -> bool:
-    """Applicability = FeatureSet (NOT is_required). System features always apply."""
+def _is_applicable(feature: Feature, ctx: CheckContext, *, required_only: bool = False) -> bool:
+    """Applicability = FeatureSet membership (NOT is_required). System features always apply.
+
+    With `required_only` the product's set must also require the feature: the membership's
+    `is_required` override, else the feature's own flag (`FeatureInFeatureSet.effective_is_required`);
+    a system feature then applies only when it is required itself."""
     if feature.scope == FeatureScopeEnum.SYSTEM:
-        return True
+        return feature.is_required if required_only else True
+    if required_only:
+        return feature.id in ctx.required_feature_ids
     return feature.id in ctx.member_feature_ids
 
 
@@ -107,7 +119,7 @@ def _feature_gap(params: dict, lang: str | None, ctx: CheckContext, *, min_lengt
     if feature is None:
         logger.debug("gap check: unknown feature_idx=%s — skipped", feature_idx)
         return CheckResult(passed=True)
-    if not _is_applicable(feature, ctx):
+    if not _is_applicable(feature, ctx, required_only=bool(params.get(REQUIRED_ONLY))):
         return CheckResult(passed=True)  # "nie dotyczy"
 
     value = ctx.values_by_lang.get(lang, {}).get(feature_idx)
@@ -218,8 +230,10 @@ class Check:
 
 
 _REGISTRY: dict[str, Check] = {
-    GapCheck.FEATURE_PRESENT.value: Check(feature_present, True, True, frozenset({"feature_idx"})),
-    GapCheck.FEATURE_MIN_LENGTH.value: Check(feature_min_length, True, True, frozenset({"feature_idx", "min_length"})),
+    GapCheck.FEATURE_PRESENT.value: Check(feature_present, True, True, frozenset({"feature_idx", REQUIRED_ONLY})),
+    GapCheck.FEATURE_MIN_LENGTH.value: Check(
+        feature_min_length, True, True, frozenset({"feature_idx", "min_length", REQUIRED_ONLY})
+    ),
     GapCheck.PICTURE_PRESENT.value: Check(picture_present, False, False, frozenset({"role"})),
     GapCheck.PICTURE_MIN_COUNT.value: Check(picture_min_count, False, False, frozenset({"min_count", "role"})),
     GapCheck.PICTURE_ALT_PRESENT.value: Check(picture_alt_present, False, True, frozenset()),
@@ -257,6 +271,8 @@ def validate_params(check_key: str, params: dict | None) -> None:
     key = str(check_key)
     if key in _FEATURE_CHECKS and not params.get("feature_idx"):
         raise InvalidRequestError(f"{check_key} requires a non-empty 'feature_idx'")
+    if REQUIRED_ONLY in params and not isinstance(params[REQUIRED_ONLY], bool):
+        raise InvalidRequestError(f"{check_key} '{REQUIRED_ONLY}' must be true or false")
     if key == GapCheck.FEATURE_MIN_LENGTH.value:
         min_length = params.get("min_length")
         if not isinstance(min_length, int) or isinstance(min_length, bool) or min_length < 1:
@@ -268,6 +284,11 @@ def validate_params(check_key: str, params: dict | None) -> None:
     role = params.get("role")
     if role is not None and str(role).strip().upper() not in PictureRoleEnum.__members__:
         raise InvalidRequestError(f"Unknown picture role: {role!r}")
+
+
+def needs_required_features(params: dict | None, check_key: str) -> bool:
+    """Whether a feature-check definition gates only where the set requires the feature."""
+    return str(check_key) in _FEATURE_CHECKS and bool((params or {}).get(REQUIRED_ONLY))
 
 
 def needs_feature_idxs(params: dict | None, check_key: str) -> str | None:
