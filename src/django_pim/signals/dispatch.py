@@ -9,6 +9,7 @@ from celery import current_app
 from django.core.cache import caches
 
 from django_pim import settings as pim_settings
+from django_pim.services.redis_client import get_redis_client
 
 logger = logging.getLogger("django_pim.signals")
 
@@ -16,7 +17,7 @@ logger = logging.getLogger("django_pim.signals")
 def enqueue_product_sync(sku: str, channel_idx: str) -> None:
     """Add SKU+channel to Redis pending set and schedule a flush task."""
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
     except Exception:
         logger.warning("Redis unavailable, skipping signal sync for SKU=%s channel=%s", sku, channel_idx)
         return
@@ -55,7 +56,7 @@ GAPS_FLUSH_LOCK = "pim:gaps:flush_scheduled"
 def enqueue_gap_recompute(product_pk: int) -> None:
     """Debounce a per-product gap recompute and schedule the flush task once."""
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
     except Exception:
         logger.warning("Redis unavailable, skipping gap recompute for product=%s", product_pk)
         return
@@ -84,7 +85,7 @@ def drain_pending_gap_pks() -> list[int]:
     re-run — a second call after a drain returns an empty list.
     """
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
     except Exception:
         logger.warning("Redis unavailable for gap flush — nothing drained")
         return []

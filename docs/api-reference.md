@@ -381,7 +381,7 @@ All category endpoints are channel-scoped. Path parameter `{channel_idx}` is alw
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `search` | `str` | Filter by name (case-insensitive) |
+| `search` | `str` | Case-insensitive match on a name value (any language of the channel) or on `idx`; language keys and JSON punctuation do not match |
 | `is_active` | `bool` | Filter by active status. Accepts `true`/`1`/`yes` |
 | `parent_category` | `int` | Filter by parent category PK |
 | `root_only` | `bool` | Return only root categories (no parent). Accepts `true`/`1`/`yes` |
@@ -406,7 +406,14 @@ All category endpoints are channel-scoped. Path parameter `{channel_idx}` is alw
 | `idx` | `str` | Category slug identifier |
 | `name` | `str` | Default language name |
 | `parent_category` | `int\|null` | Parent category PK, null for root |
+| `parent_category_idx` | `str\|null` | Parent category idx, null for root |
 | `is_active` | `bool` | Whether category is active |
+| `is_in_menu` | `bool` | Whether category appears in the menu |
+| `url_key` | `str` | Storefront slug for the default language, falls back to idx |
+| `product_count` | `int` | Products in this category |
+| `subcategory_count` | `int` | Direct subcategories |
+| `position` | `int\|null` | Sort position among siblings |
+| `desc` | `str` | Internal description |
 
 **Status codes:** `200`, `400`, `401`, `403`, `404` (channel not found)
 

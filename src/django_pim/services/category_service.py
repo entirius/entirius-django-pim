@@ -10,11 +10,13 @@ isolated from API and model layers.
 """
 
 from django.db import transaction
-from django.db.models import Count, QuerySet
+from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce
 from slugify import slugify
 
 from ..exceptions import InvalidRequestError
-from ..models import Channel, ProductCategory
+from ..models import Channel, ProductCategory, ProductInCategory
+from ..settings import T9N_DEFAULT_LANG
 
 # Maps API ordering params to actual DB field paths.
 ORDERING_MAP: dict[str, str] = {
@@ -25,6 +27,22 @@ ORDERING_MAP: dict[str, str] = {
     "is_active": "is_active",
     "-is_active": "-is_active",
 }
+
+
+def _count_subquery(queryset: QuerySet, group_by: str) -> Coalesce:
+    """Correlated ``COUNT(*)`` per outer row: evaluated for the page rows only, no GROUP BY over the channel."""
+    counted = queryset.order_by().values(group_by).annotate(n=Count("pk")).values("n")
+    return Coalesce(Subquery(counted, output_field=IntegerField()), Value(0))
+
+
+def _search_filter(channel: Channel, search: str) -> Q:
+    """Match the search term in any channel language's name value, or in idx (all case-insensitive)."""
+    isos = [channel.default_language.iso2, *channel.languages.values_list("iso2", flat=True)]
+    langs = {T9N_DEFAULT_LANG, *isos, *(iso.lower() for iso in isos)}
+    condition = Q(idx__icontains=search)
+    for lang in sorted(lang for lang in langs if lang.isalpha()):
+        condition |= Q(**{f"name_t9n__{lang}__icontains": search})
+    return condition
 
 
 def list_categories(
@@ -41,7 +59,7 @@ def list_categories(
 
     Business rules:
     - Returns only categories from the specified shop
-    - Supports search by category name
+    - Supports search by name value (any channel language, case-insensitive) or idx
     - Supports filtering by active status
     - Supports filtering by parent category or root categories only
     - Uses select_related for performance optimization
@@ -63,18 +81,23 @@ def list_categories(
         Channel.DoesNotExist: If channel_idx does not exist
     """
     # Validate channel exists
-    channel = Channel.objects.get(idx=channel_idx)
+    channel = Channel.objects.select_related("default_language").get(idx=channel_idx)
 
-    # Start with base queryset
+    # Counts are correlated subqueries: only the rows of the requested page are counted.
+    # shop__default_language is joined because ProductCategory.name / url_key read it per row.
     queryset = (
         ProductCategory.objects.filter(shop=channel)
-        .select_related("shop", "parent_category")
-        .annotate(product_count=Count("product_in_category", distinct=True))
+        .select_related("shop__default_language", "parent_category")
+        .annotate(
+            product_count=_count_subquery(ProductInCategory.objects.filter(category=OuterRef("pk")), "category"),
+            subcategory_count=_count_subquery(
+                ProductCategory.objects.filter(parent_category=OuterRef("pk")), "parent_category"
+            ),
+        )
     )
 
-    # Apply search filter (name_t9n is JSONField, not a plain CharField)
     if search:
-        queryset = queryset.filter(name_t9n__icontains=search)
+        queryset = queryset.filter(_search_filter(channel, search))
 
     # Apply is_active filter
     if is_active is not None:

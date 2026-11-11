@@ -30,6 +30,7 @@ from ..models.gap_definition import GapSeverity
 from ..models.pim_settings import PimSettings
 from . import channel_service
 from .gap_detection_service import detect_for_product
+from .redis_client import get_redis_client
 
 logger = logging.getLogger("process")
 
@@ -152,7 +153,7 @@ def acquire_full_lock(ttl: int = _DEFAULT_LOCK_TTL) -> bool:
     by a Redis outage — at the cost of the coalesce guarantee in that degraded window.
     """
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
         return bool(redis_client.set(RECOMPUTE_LOCK_KEY, "1", nx=True, ex=ttl))
     except Exception:
         logger.warning("Redis unavailable for gap recompute lock — proceeding without coalesce guard")
@@ -162,7 +163,7 @@ def acquire_full_lock(ttl: int = _DEFAULT_LOCK_TTL) -> bool:
 def refresh_full_lock(ttl: int = _DEFAULT_LOCK_TTL) -> None:
     """Extend the lock TTL (heartbeat during a long pass). Caller must already hold the lock."""
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
         redis_client.set(RECOMPUTE_LOCK_KEY, "1", ex=ttl)
     except Exception:
         logger.warning("Redis unavailable refreshing gap recompute lock (may expire mid-run)")
@@ -170,7 +171,7 @@ def refresh_full_lock(ttl: int = _DEFAULT_LOCK_TTL) -> None:
 
 def release_full_lock() -> None:
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
         redis_client.delete(RECOMPUTE_LOCK_KEY)
     except Exception:
         logger.warning("Redis unavailable releasing gap recompute lock (will auto-expire)")
@@ -179,7 +180,7 @@ def release_full_lock() -> None:
 def is_full_recompute_running() -> bool:
     """True when a full recompute currently holds the lock. Degrades to False if Redis is down."""
     try:
-        redis_client = caches["default"].client.get_client()
+        redis_client = get_redis_client(caches["default"])
         return bool(redis_client.get(RECOMPUTE_LOCK_KEY))
     except Exception:
         logger.warning("Redis unavailable reading gap recompute lock — reporting not-running")
