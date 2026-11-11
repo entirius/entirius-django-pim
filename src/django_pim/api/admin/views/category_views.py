@@ -81,7 +81,13 @@ class CategoryViewSet(viewsets.ViewSet):
 
     @extend_schema(
         summary="List categories",
-        description="Get a paginated, searchable list of categories for a specific channel",
+        description=(
+            "Get a paginated, searchable list of categories for a specific channel. "
+            "Each item carries `product_count`, `subcategory_count` (direct children), `position` and "
+            "`parent_category_idx`, enough to render a lazy tree (`root_only`, then `parent_category=<pk>`). "
+            "`search` matches case-insensitively the name values of the channel's languages or the idx; "
+            "it does not match language keys or JSON punctuation."
+        ),
         parameters=[
             OpenApiParameter(
                 name="channel_idx",
@@ -109,7 +115,7 @@ class CategoryViewSet(viewsets.ViewSet):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 type=str,
-                description="Search categories by name",
+                description="Case-insensitive match on a category name (any channel language) or idx",
             ),
             OpenApiParameter(
                 name="is_active",
@@ -183,6 +189,9 @@ class CategoryViewSet(viewsets.ViewSet):
                     is_in_menu=c.is_in_menu,
                     url_key=c.url_key,
                     product_count=getattr(c, "product_count", 0),
+                    subcategory_count=getattr(c, "subcategory_count", 0),
+                    position=c.position,
+                    parent_category_idx=c.parent_category.idx if c.parent_category else None,
                     desc=c.desc,
                 )
                 for c in paginated_categories
