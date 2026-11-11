@@ -16,6 +16,7 @@ from slugify import slugify
 
 from ..exceptions import InvalidRequestError
 from ..models import Channel, ProductCategory, ProductInCategory
+from ..settings import T9N_DEFAULT_LANG
 
 # Maps API ordering params to actual DB field paths.
 ORDERING_MAP: dict[str, str] = {
@@ -32,6 +33,16 @@ def _count_subquery(queryset: QuerySet, group_by: str) -> Coalesce:
     """Correlated ``COUNT(*)`` per outer row: evaluated for the page rows only, no GROUP BY over the channel."""
     counted = queryset.order_by().values(group_by).annotate(n=Count("pk")).values("n")
     return Coalesce(Subquery(counted, output_field=IntegerField()), Value(0))
+
+
+def _search_filter(channel: Channel, search: str) -> Q:
+    """Match the search term in any channel language's name value, or in idx (all case-insensitive)."""
+    isos = [channel.default_language.iso2, *channel.languages.values_list("iso2", flat=True)]
+    langs = {T9N_DEFAULT_LANG, *isos, *(iso.lower() for iso in isos)}
+    condition = Q(idx__icontains=search)
+    for lang in sorted(lang for lang in langs if lang.isalpha()):
+        condition |= Q(**{f"name_t9n__{lang}__icontains": search})
+    return condition
 
 
 def list_categories(
@@ -86,7 +97,7 @@ def list_categories(
     )
 
     if search:
-        queryset = queryset.filter(name_t9n__icontains=search)
+        queryset = queryset.filter(_search_filter(channel, search))
 
     # Apply is_active filter
     if is_active is not None:
