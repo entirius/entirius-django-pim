@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Gap recompute and signal dispatch work with Django's built-in `django.core.cache.backends.redis.RedisCache`, not
+  only django-redis. They reached the raw client through django-redis's `.client`, so on the built-in backend every
+  lock and pending-set call raised and took the degraded path ("Redis unavailable ...") while Redis was up.
+  `django_pim.services.redis_client` returns the writer client for either backend.
+
 ## 3.6.1 — 2026-11-04
 
 ### Security
