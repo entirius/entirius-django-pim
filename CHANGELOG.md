@@ -9,6 +9,27 @@
   lock and pending-set call raised and took the degraded path ("Redis unavailable ...") while Redis was up.
   `django_pim.services.redis_client` returns the writer client for either backend.
 
+### Added
+
+- Admin API: `GET {channel}/categories/` items carry `subcategory_count` (direct children), `position` and
+  `parent_category_idx`, so a CMS can render a lazy tree over `root_only` and `parent_category=<pk>`. Additive: no
+  field removed or renamed.
+
+### Changed
+
+- Admin API: `search` on `GET {channel}/categories/` matches case-insensitively the name values of the channel's
+  languages (default language and `languages`) or the `idx`. It used to match the JSON text of `name_t9n`, so a
+  language key (`en`, `pl`), `"` or `:` matched every category and `idx` was not searched. Fewer false hits, idx hits
+  added.
+
+### Performance
+
+- Admin API: `product_count` and `subcategory_count` on the category list are correlated subqueries, so only the rows
+  of the page are counted and the paginator's `count()` carries no aggregate (a GROUP BY over every category of the
+  channel ran on each page). The channel's default language is joined, which removes a query per row from `name` and
+  `url_key` (a page of 20 took 24 queries, now 4, whatever the page size).
+
+
 ## 3.6.1 — 2026-11-04
 
 ### Security

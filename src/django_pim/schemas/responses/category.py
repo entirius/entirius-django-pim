@@ -44,6 +44,11 @@ class CategoryResponse(BaseModel):
         examples=["all-fabrics"],
     )
     product_count: int = Field(0, description="Number of products in this category", examples=[0, 12], ge=0)
+    subcategory_count: int = Field(0, description="Number of direct subcategories", examples=[0, 3], ge=0)
+    position: int | None = Field(None, description="Sort position among siblings", examples=[None, 10])
+    parent_category_idx: str | None = Field(
+        None, description="Parent category idx (null for root categories)", examples=[None, "electronics"]
+    )
     desc: str = Field(
         "",
         description="Internal description / instruction. Used to ground AI workflows when matching (feature-set selection, attribute fill). Not shown on the storefront.",
