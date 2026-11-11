@@ -18,6 +18,7 @@ from unittest import mock
 import pytest
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models.signals import post_save
 from PIL import Image
 
 from django_pim import models
@@ -28,6 +29,7 @@ from django_pim.models import (
     Files,
     Picture,
     PictureRoleEnum,
+    Product,
     ProductAttribute,
     ProductFile,
     ProductPicture,
@@ -186,6 +188,26 @@ class TestScalarValues:
 
         assert _read_scalar(channel, "SKU-R2") == {"value": "7"}
 
+    @pytest.mark.parametrize(
+        ("feature_type", "first", "second"),
+        [
+            (FeatureTypeEnum.BOOL, {"value": True}, {"value": False}),
+            (FeatureTypeEnum.TEXT, {"text": "long form"}, {"text": "other"}),
+            (FeatureTypeEnum.VARCHAR255, {"text": "short"}, {"text": "other"}),
+        ],
+    )
+    def test_revert_restores_the_earlier_bool_and_text(self, feature_type, first, second):
+        channel = ChannelFactory(is_default=True)
+        _scalar_product(channel, "SKU-R1", feature_type)
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R1", first))
+        before = _read_scalar(channel, "SKU-R1")
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R1", second))
+        assert _read_scalar(channel, "SKU-R1") == second
+
+        enrichment_adapter.revert(_scalar_proposal(channel, "SKU-R1", second, current_snapshot=before))
+
+        assert _read_scalar(channel, "SKU-R1") == first
+
     def test_revert_to_held_nothing_removes_the_row(self):
         channel = ChannelFactory(is_default=True)
         product, feature = _scalar_product(channel, "SKU-R3", FeatureTypeEnum.DECIMAL)
@@ -195,6 +217,25 @@ class TestScalarValues:
         enrichment_adapter.revert(_scalar_proposal(channel, "SKU-R3", {"value": "9"}, current_snapshot=before))
 
         assert not ProductAttribute.objects.filter(product=product, feature=feature).exists()
+
+    def test_revert_to_held_nothing_signals_the_product_change(self):
+        """The clear goes through `product_service`, so the Matrix sync hears about it like any attribute write."""
+        channel = ChannelFactory(is_default=True)
+        product, _feature = _scalar_product(channel, "SKU-R4", FeatureTypeEnum.DECIMAL)
+        before = _read_scalar(channel, "SKU-R4")
+        enrichment_adapter.apply(_scalar_proposal(channel, "SKU-R4", {"value": "9"}))
+        sent = []
+
+        def receiver(sender, instance, **kwargs):
+            sent.append(instance.pk)
+
+        post_save.connect(receiver, sender=Product, weak=False)
+        try:
+            enrichment_adapter.revert(_scalar_proposal(channel, "SKU-R4", {"value": "9"}, current_snapshot=before))
+        finally:
+            post_save.disconnect(receiver, sender=Product)
+
+        assert sent == [product.pk]
 
     def test_a_length_in_inches_is_stored_in_millimetres(self):
         channel = ChannelFactory(is_default=True)

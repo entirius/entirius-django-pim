@@ -58,6 +58,13 @@ The bus treats these as opaque — only this adapter reads them.
 | `picture_alt` | `{"channel", "language"}` | `{"alts": {"<picture_pk>": <alt for that language>}}` | `{"alts": {"<picture_pk>": <stored alt, "" if absent>}}` of ALL pictures, `{"alts": {}}` if product missing |
 | `video` | `{"channel"}` | — (binary staged in the bus) | `{"files": [<stored names of linked VIDEO files>]}`, `{"files": []}` if product missing |
 
+Scalar values (DECIMAL, BOOL, LENGTH, VARCHAR255, TEXT) are language-neutral: one row, `language` is ignored. A value
+of the wrong type (`"fast"` for a decimal, a string for a bool, a number for text) or an unknown LENGTH unit raises
+`ValueError` before anything is written. **apply** refuses an empty value; only **revert** may restore "held nothing",
+and it does so through `product_service.clear_product_attribute` (the same change signal as any attribute write), not a
+direct delete. The field catalog (`describe_fields`) does not list these types yet: the conformance kit's catalog
+contract knows `text`, `html`, `select` and `multiselect` only.
+
 Scope specs (`resolve_targets` / `find_gaps`):
 
 ```jsonc

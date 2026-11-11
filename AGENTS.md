@@ -81,7 +81,7 @@ src/django_pim/
 │   └── responses/                  # Pydantic models (list/detail + nested)
 │
 ├── services/                       # Business logic
-│   ├── product_service.py          #   list, get, detail, create, update, delete, bulk_update
+│   ├── product_service.py          #   list, get, detail, create, update, clear_product_attribute, delete, bulk_update
 │   ├── category_service.py         #   list, get, detail, create, update, delete
 │   ├── feature_service.py          #   list, get, create, update, delete, resolve_name
 │   ├── feature_set_service.py      #   list, get, create, update, delete, bulk_add/remove

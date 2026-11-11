@@ -622,7 +622,7 @@ def _write_scalar(channel_idx: str, *, subject_ref: str, feature: Feature, value
     product = product_service.get_product_by_sku(channel_idx, subject_ref)
     _require_applicable(product, feature, subject_ref)
     if value[_scalar_key(feature)] in (None, ""):
-        ProductAttribute.objects.filter(product=product, feature=feature).delete()
+        product_service.clear_product_attribute(channel_idx, subject_ref, feature.idx)
         return
     product_service.update_product(
         channel_idx, subject_ref, attributes=[{"feature_idx": feature.idx, **_scalar_field(feature, value)}]
