@@ -8,7 +8,9 @@
   converted on write and stored in `DEFAULT_LENGTH_UNIT`, rounded to `UNIT_CONVERSION_DECIMAL_PLACES`.
 - Enrichment: `attribute_value` proposals now apply to DECIMAL and BOOL (`{"value": ...}`) and to VARCHAR255 and TEXT
   (`{"text": ...}`). `read_current` returns the same shapes; an empty value is restore-only, so only revert removes the
-  row. A decimal reads back in plain digits, so a stored 12.500000 and a proposed 12.5 are not drift.
+  row. A decimal reads back in plain digits, so a stored 12.500000 and a proposed 12.5 are not drift. A number
+  with more than 18 integer or 6 decimal digits is refused with `ValueError` (the column is numeric(24, 6)) instead of
+  being rounded or failing in the database.
 - Services: `product_service.clear_product_attribute(channel_idx, sku, feature_idx)` removes a product's stored value
   of one feature. `update_product` cannot: a scalar with no value is left untouched there. It signals like an
   attribute update (`post_save` for the Matrix sync, lookup touch, propagation from the default channel) and does

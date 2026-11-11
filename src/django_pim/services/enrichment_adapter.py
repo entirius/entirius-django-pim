@@ -162,6 +162,7 @@ _SELECT_TYPES = frozenset({FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT})
 _PLAIN_TEXT_TYPES = frozenset({FeatureTypeEnum.VARCHAR255, FeatureTypeEnum.TEXT})
 _NUMBER_TYPES = frozenset({FeatureTypeEnum.DECIMAL, FeatureTypeEnum.BOOL, FeatureTypeEnum.LENGTH})
 _SCALAR_TYPES = _PLAIN_TEXT_TYPES | _NUMBER_TYPES
+_DECIMAL_DIGITS, _DECIMAL_PLACES = 24, 6  # ProductAttribute.value_decimal: max_digits, decimal_places
 
 # Field catalog shape per writable feature type: (type, max_length, translatable). TEXT_T9N is
 # edited as HTML in the CMS (wysiwyg), VARCHAR255_T9N as plain text capped by its column.
@@ -665,6 +666,13 @@ def _clean_decimal(feature: Feature, raw) -> Decimal:
         number = None
     if number is None or not number.is_finite():
         raise ValueError(f"feature {feature.idx!r} expects a number, got {raw!r}")
+    shape = number.normalize()
+    if shape.as_tuple().exponent < -_DECIMAL_PLACES or shape.adjusted() >= _DECIMAL_DIGITS - _DECIMAL_PLACES:
+        # `value_decimal` is numeric(24, 6): a longer value would be rounded silently or fail in the database.
+        raise ValueError(
+            f"feature {feature.idx!r} expects a number of at most {_DECIMAL_DIGITS - _DECIMAL_PLACES} integer and "
+            f"{_DECIMAL_PLACES} decimal digits, got {raw!r}"
+        )
     return number
 
 
@@ -681,8 +689,9 @@ def _write_text(channel_idx: str, *, subject_ref: str, feature: Feature, languag
         )
     if feature.feature_type not in _T9N_TEXT_TYPES:
         raise ValueError(
-            f"enrichment_adapter writes translatable text only (or select options); feature {feature.idx!r} is "
-            f"feature_type={feature.feature_type} (expected VARCHAR255_T9N, TEXT_T9N, SELECT or MULTISELECT)"
+            f"enrichment_adapter writes translatable text only here (select options and scalars have their own "
+            f"value keys); feature {feature.idx!r} is feature_type={feature.feature_type} "
+            f"(expected VARCHAR255_T9N or TEXT_T9N)"
         )
     if not isinstance(language, str) or not language:
         raise ValueError(f"translatable feature {feature.idx!r} needs a language in the locator")
