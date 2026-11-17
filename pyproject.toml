@@ -33,7 +33,7 @@ dependencies = [
     "pyyaml",
     "requests",
     "urllib3",
-    "pillow>=9.1.0",
+    "pillow>=13.0.0",
     "python-magic",
     "trafaret",
     "celery>=5.4",
