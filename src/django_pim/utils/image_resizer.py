@@ -69,14 +69,14 @@ class ImageResizer:
             return src_image.save(out_path, quality=quality, optimize=optimize)
 
         resized_x, resized_y = ImageResizer.size_to_size_with_ratio(src_x, src_y, out_x, out_y)
-        resized_image = src_image.resize((resized_x, resized_y), Image.ANTIALIAS)
+        resized_image = src_image.resize((resized_x, resized_y), Image.Resampling.LANCZOS)
         out_image = ImageResizer.make_ratio(resized_image, out_x, out_y)
         out_image = out_image.convert("RGB")
         return out_image.save(out_path, quality=quality, optimize=optimize)
 
     def resize_fill_crop_image(src_path, out_path, out_x, out_y, transparency=False, quality=75, optimize=True):
         src_image = Image.open(src_path)
-        resize_option = Image.ANTIALIAS
+        resize_option = Image.Resampling.LANCZOS
         result = src_image
 
         if not transparency and result.mode == "RGBA":
@@ -85,6 +85,8 @@ class ImageResizer:
             result = new_image
         if not transparency:
             result = result.convert("RGB")
+        elif result.mode not in ("RGB", "RGBA"):
+            result = result.convert("RGBA" if result.has_transparency_data else "RGB")
 
         if src_image.width > out_x:
             result = ImageOps.fit(result, (out_x, result.height), resize_option, centering=(0.5, 0.5))
