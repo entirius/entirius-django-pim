@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Require `pillow>=13.0.0` (fixes known Pillow CVEs; Pillow 13 requires Python 3.11+, already the floor here).
+
+### Fixed
+
+- `ImageResizer.resize_image_ratio_safe`, `ImageResizer.resize_fill_crop_image` and
+  `PimImageResizer.resize_fill_crop_image` use `Image.Resampling.LANCZOS` instead of `Image.ANTIALIAS`, which
+  Pillow 10 removed (`AttributeError` on every call). Same filter, same output.
+- `PimImageResizer.resize_fill_crop_image` crops and pads a source that is larger than the target in one
+  dimension and smaller in the other (it called a non-existent `Image.pad` and raised `AttributeError`).
+
 ## 3.8.0 — 2026-11-11
 
 ### Added
