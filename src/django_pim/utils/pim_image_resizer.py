@@ -70,10 +70,12 @@ class PimImageResizer:
             result = new_image
         if not transparency:
             result = result.convert("RGB")
+        elif result.mode not in ("RGB", "RGBA"):
+            result = result.convert("RGBA" if result.has_transparency_data else "RGB")
 
         if src_image.width > out_x and src_image.height > out_y:
             result = ImageOps.fit(result, (out_x, out_y), resize_option, centering=(0.5, 0.5))
-        elif src_image.width < out_x and src_image.height > out_y:
+        elif src_image.width <= out_x and src_image.height > out_y:
             result = ImageOps.pad(
                 ImageOps.fit(result, (src_image.width, out_y), resize_option, centering=(0.5, 0.5)),
                 (out_x, out_y),
@@ -81,7 +83,7 @@ class PimImageResizer:
                 color=(255, 255, 255),
                 centering=(0.5, 0.5),
             )
-        elif src_image.width > out_x and src_image.height < out_y:
+        elif src_image.width > out_x and src_image.height <= out_y:
             result = ImageOps.pad(
                 ImageOps.fit(result, (out_x, src_image.height), resize_option, centering=(0.5, 0.5)),
                 (out_x, out_y),

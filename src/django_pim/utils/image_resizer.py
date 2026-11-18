@@ -85,6 +85,8 @@ class ImageResizer:
             result = new_image
         if not transparency:
             result = result.convert("RGB")
+        elif result.mode not in ("RGB", "RGBA"):
+            result = result.convert("RGBA" if result.has_transparency_data else "RGB")
 
         if src_image.width > out_x:
             result = ImageOps.fit(result, (out_x, result.height), resize_option, centering=(0.5, 0.5))
