@@ -1635,6 +1635,14 @@ class TestMainPictures:
 
         assert [[row["subject_ref"] for row in rows] for rows in pages] == [["MP-P0", "MP-P1"], ["MP-P2"], []]
 
+    def test_a_main_picture_without_a_file_is_not_listed(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="MS-5")
+        link = _link(channel, "MS-5", color="red", role="main")
+        Picture.objects.filter(pk=link.picture_id).update(image="")
+
+        assert enrichment_adapter.main_pictures(channel=channel.idx) == []
+
     def test_other_channels_are_not_listed(self):
         channel = ChannelFactory(is_default=True)
         other = ChannelFactory()

@@ -1041,8 +1041,8 @@ def picture(*, subject_ref: str, channel: str, picture_ref: str) -> tuple[bytes,
 def main_pictures(*, channel: str, page: int = 1) -> list[dict]:
     """A page of the channel's main pictures, `[{subject_ref, picture_ref, sha1, width, height}]`, by product pk —
     the catalogue of a picture-checking worker (which pictures it has seen is its own business). Read from the
-    database only, no file is opened. Products without a main picture are not listed; the main link is the one
-    `main_picture` reads (lowest pk). `picture_ref` is what `picture` takes; `sha1` is `""` for a picture stored
+    database only, no file is opened. Products without a main picture are not listed, nor a main picture without a
+    file (`list_pictures` and `picture` skip it too); the main link is the one `main_picture` reads (lowest pk). `picture_ref` is what `picture` takes; `sha1` is `""` for a picture stored
     without one. A page is `_PAGE_SIZE` products: an empty page is the end. An unknown channel raises
     `ObjectDoesNotExist`.
     """
@@ -1051,6 +1051,7 @@ def main_pictures(*, channel: str, page: int = 1) -> list[dict]:
     skus = {product.pk: product.real_product.sku for product in products}
     links = (
         ProductPicture.objects.filter(product_id__in=skus, picture_role=PictureRoleEnum.MAIN)
+        .exclude(picture__image="")
         .select_related("picture")
         .order_by("product_id", "pk")
     )
