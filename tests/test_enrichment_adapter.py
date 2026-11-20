@@ -1588,6 +1588,75 @@ class TestListPictures:
 
 
 @pytest.mark.django_db
+class TestMainPictures:
+    def test_one_row_per_product_with_a_main_picture(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="MS-1")
+        _make_bare_product(channel=channel, sku="MS-2")
+        _make_bare_product(channel=channel, sku="MS-3")  # no pictures at all
+        main = _link(channel, "MS-1", color="red", role="main")
+        _link(channel, "MS-1", color="blue", position=1)
+        _link(channel, "MS-2", color="green", position=1)  # a gallery picture, no main
+
+        rows = enrichment_adapter.main_pictures(channel=channel.idx)
+
+        assert rows == [
+            {
+                "subject_ref": "MS-1",
+                "picture_ref": str(main.pk),
+                "sha1": main.picture.sha1,
+                "width": main.picture.width,
+                "height": main.picture.height,
+            }
+        ]
+        assert len(rows[0]["sha1"]) == 40
+
+    def test_the_main_link_is_the_one_main_picture_reads(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="MS-4")
+        first = _link(channel, "MS-4", color="red", role="main", position=0)
+        _link(channel, "MS-4", color="blue", role="main", position=1)
+
+        [row] = enrichment_adapter.main_pictures(channel=channel.idx)
+
+        assert row["picture_ref"] == str(first.pk)
+        data, _ = enrichment_adapter.picture(subject_ref="MS-4", channel=channel.idx, picture_ref=row["picture_ref"])
+        main_data, _ = enrichment_adapter.main_picture(subject_ref="MS-4", channel=channel.idx)
+        assert data == main_data
+
+    def test_pages_by_product_until_empty(self, monkeypatch):
+        monkeypatch.setattr(enrichment_adapter, "_PAGE_SIZE", 2)
+        channel = ChannelFactory(is_default=True)
+        for index, color in enumerate(["red", "green", "blue"]):
+            _make_bare_product(channel=channel, sku=f"MP-P{index}")
+            _link(channel, f"MP-P{index}", color=color, role="main")
+
+        pages = [enrichment_adapter.main_pictures(channel=channel.idx, page=page) for page in (1, 2, 3)]
+
+        assert [[row["subject_ref"] for row in rows] for rows in pages] == [["MP-P0", "MP-P1"], ["MP-P2"], []]
+
+    def test_a_main_picture_without_a_file_is_not_listed(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="MS-5")
+        link = _link(channel, "MS-5", color="red", role="main")
+        Picture.objects.filter(pk=link.picture_id).update(image="")
+
+        assert enrichment_adapter.main_pictures(channel=channel.idx) == []
+
+    def test_other_channels_are_not_listed(self):
+        channel = ChannelFactory(is_default=True)
+        other = ChannelFactory()
+        _make_bare_product(channel=other, sku="MS-OTHER")
+        _link(other, "MS-OTHER", color="red", role="main")
+
+        assert enrichment_adapter.main_pictures(channel=channel.idx) == []
+
+    def test_unknown_channel_raises(self):
+        with pytest.raises(ObjectDoesNotExist):
+            enrichment_adapter.main_pictures(channel="nope")
+
+
+@pytest.mark.django_db
 class TestPicture:
     def test_returns_the_chosen_pictures_bytes(self):
         channel = ChannelFactory(is_default=True)
@@ -1994,8 +2063,16 @@ class TestChannelLanguagesAndLocator:
         with pytest.raises(ValueError, match="needs a language"):
             enrichment_adapter.make_locator(field_key="enr_desc", channel="c1", language=None)
 
+    @pytest.mark.parametrize("feature_type", [FeatureTypeEnum.BOOL, FeatureTypeEnum.DECIMAL, FeatureTypeEnum.TEXT])
+    def test_scalar_locator_has_no_language(self, feature_type):
+        FeatureFactory(idx="enr_flag", feature_type=feature_type)
+
+        locator = enrichment_adapter.make_locator(field_key="enr_flag", channel="c1", language="en")
+
+        assert locator == {"channel": "c1", "language": None, "feature_idx": "enr_flag"}
+
     def test_non_writable_or_unknown_field_raises(self):
-        FeatureFactory(idx="enr_weight", feature_type=FeatureTypeEnum.DECIMAL)
+        FeatureFactory(idx="enr_weight", feature_type=FeatureTypeEnum.MASS)
 
         with pytest.raises(ValueError, match="not a writable field"):
             enrichment_adapter.make_locator(field_key="enr_weight", channel="c1", language="en")

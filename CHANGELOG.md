@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.9.0 — 2026-11-20
+
+### Added
+
+- Enrichment adapter: `main_pictures(*, channel, page=1)` lists a page of the channel's main pictures as
+  `[{subject_ref, picture_ref, sha1, width, height}]`, by product pk, from the database only (no file is opened). It is
+  the catalogue of the enrichment `comfy` kind's spawn: a worker that checks every main picture once per file keeps
+  what it has seen by `sha1` and reads the bytes later through `picture`. Products without a main picture are not
+  listed; an empty page is the end.
+
+### Changed
+
+- Enrichment adapter: `make_locator` builds the `attribute_value` locator of a language-neutral feature too (BOOL,
+  DECIMAL, LENGTH, VARCHAR255, TEXT; language `None`), the features `apply` writes since 3.8.0. It used to refuse them
+  as "not a writable field", so a bus kind could not address a flag without knowing PIM's locator shape.
+
 ## 3.8.1 — 2026-11-18
 
 ### Security
