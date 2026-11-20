@@ -51,7 +51,8 @@ anchor (`current_snapshot.sha1`). Video has no replace target in PIM — add onl
 
 Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
 `main_picture` (bytes + mime of the main picture, input for the video kind), `list_pictures` / `picture`
-(the product's pictures to choose from, and one of them by ref, for the video and image kinds) and the field catalog
+(the product's pictures to choose from, and one of them by ref, for the video and image kinds), `main_pictures` (a
+page of the channel's main pictures with sha1 and size, for the comfy kind's spawn) and the field catalog
 `describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features),
 and `category_of` (the product's first category as a memory ref, so category-scoped SEO briefs are shared).
 
@@ -1037,6 +1038,41 @@ def picture(*, subject_ref: str, channel: str, picture_ref: str) -> tuple[bytes,
     return _image_bytes(link.picture)
 
 
+def main_pictures(*, channel: str, page: int = 1) -> list[dict]:
+    """A page of the channel's main pictures, `[{subject_ref, picture_ref, sha1, width, height}]`, by product pk —
+    the catalogue of a picture-checking worker (which pictures it has seen is its own business). Read from the
+    database only, no file is opened. Products without a main picture are not listed, nor a main picture without a
+    file (`list_pictures` and `picture` skip it too); the main link is the one `main_picture` reads (lowest pk). `picture_ref` is what `picture` takes; `sha1` is `""` for a picture stored
+    without one. A page is `_PAGE_SIZE` products: an empty page is the end. An unknown channel raises
+    `ObjectDoesNotExist`.
+    """
+    offset = (max(page, 1) - 1) * _PAGE_SIZE
+    products = product_service.list_products(channel, has_media=True).order_by("pk")[offset : offset + _PAGE_SIZE]
+    skus = {product.pk: product.real_product.sku for product in products}
+    links = (
+        ProductPicture.objects.filter(product_id__in=skus, picture_role=PictureRoleEnum.MAIN)
+        .exclude(picture__image="")
+        .select_related("picture")
+        .order_by("product_id", "pk")
+    )
+    rows: dict[int, dict] = {}
+    for link in links:
+        if link.product_id not in rows:
+            rows[link.product_id] = _main_picture_row(skus[link.product_id], link)
+    return [rows[pk] for pk in skus if pk in rows]
+
+
+def _main_picture_row(sku: str, link: ProductPicture) -> dict:
+    picture = link.picture
+    return {
+        "subject_ref": sku,
+        "picture_ref": str(link.pk),
+        "sha1": picture.sha1 or "",
+        "width": picture.width,
+        "height": picture.height,
+    }
+
+
 def _image_bytes(picture: Picture) -> tuple[bytes, str]:
     """The stored file's bytes; mime is sniffed from them (Picture stores no type)."""
     with picture.image.open("rb") as fh:
@@ -1230,14 +1266,15 @@ def subject_labels(*, refs: list[str], channel: str) -> dict[str, str]:
 
 
 def make_locator(*, field_key: str, channel: str, language: str | None) -> dict:
-    """`attribute_value` locator for a catalogue field; language is None for select features.
+    """`attribute_value` locator for a catalogue field; language is None for select and language-neutral (scalar)
+    features — BOOL, DECIMAL, LENGTH, VARCHAR255, TEXT.
 
     Raises `ValueError` for an unknown or non-writable field, or a text field without a language.
     """
     if field_key in _NON_WRITABLE_IDXS:
         raise ValueError(f"feature {field_key!r} is not a writable field (system route/SEO field)")
     feature = _get_feature(field_key)
-    if feature.feature_type in _SELECT_TYPES:
+    if feature.feature_type in _SELECT_TYPES | _SCALAR_TYPES:
         return {"channel": channel, "language": None, "feature_idx": field_key}
     if feature.feature_type not in _T9N_TEXT_TYPES:
         raise ValueError(f"feature {field_key!r} is not a writable field (feature_type={feature.feature_type})")
