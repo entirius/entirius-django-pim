@@ -31,6 +31,7 @@ This file imports nothing from `django-enrichment` — the dependency points one
 | `list_pictures(*, subject_ref, channel)` | READ, optional | `[{ref, label, url, is_main}]` of the product's pictures, main first then by position; `ref` = product-picture link pk, label = alt in the channel main language, else the file name |
 | `picture(*, subject_ref, channel, picture_ref)` | READ, optional | `(bytes, mime)` of one picture by `list_pictures` ref; `LookupError` when it is not this product's |
 | `main_pictures(*, channel, page=1)` | READ, optional | A page of the channel's main pictures `[{subject_ref, picture_ref, sha1, width, height}]` by product pk, database only (no file opened); products without a main picture are not listed, `sha1` is `""` when the picture has none; an empty page is the end |
+| `pictures_by_sha1(*, sha1s)` | READ, optional | `{sha1: url}` of the stored pictures with these sha1s, missing ones left out: the thumbnails of the files the `comfy` kind checked, even after the product got another picture |
 | `apply_modes(*, target_kind, target_locator)` | READ, optional | `["add", "replace"]` for a derived picture (locator has `source_picture_ref`), `[]` otherwise (video: add only) |
 | `describe_fields(*, channel, language="")` | READ, optional | Field catalog — see below |
 | `channel_languages(*, channel)` | READ, optional | Lowercase iso2 languages of the channel, main first |
@@ -75,8 +76,9 @@ Scope specs (`resolve_targets` / `find_gaps`):
 ```
 
 Only a whitelist of `list_products` kwargs is honoured in `filters`
-(`search`, `is_enabled`, `visibility`, `product_class`, `category_idx`, `has_media`) — anything else
-is ignored, so a worker can't inject arbitrary query kwargs.
+(`search`, `is_enabled`, `visibility`, `product_class`, `category_idx`, `has_media`, `attribute_filters`) — anything
+else is ignored, so a worker can't inject arbitrary query kwargs. `attribute_filters` is `{feature_idx: attribute_idx}`
+(a select option, ANDed, as the product grid's `attr_*` filters); any other shape raises `ValueError`.
 
 ## Two gotchas the adapter owns (the bus stays dumb)
 
