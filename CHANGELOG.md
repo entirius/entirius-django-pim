@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.10.0 — 2026-11-21
+
+### Added
+
+- Enrichment adapter: `pictures_by_sha1(*, sha1s)` answers `{sha1: url}` of the stored pictures — the thumbnails of the
+  files the enrichment `comfy` kind checked (its results list in the CMS), even after the product got another picture.
+- Enrichment adapter: a `filter` scope takes `attribute_filters` (`{feature_idx: attribute_idx}`, as the product grid's
+  `attr_*` filters), so a task can run on every product with a select option, e.g. `packshot_check = replace_size`.
+  Any other shape is refused.
+
 ## 3.9.0 — 2026-11-20
 
 ### Added

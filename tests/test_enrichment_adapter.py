@@ -631,6 +631,35 @@ class TestResolveTargets:
 
         assert sorted(skus) == ["F1", "F2"]
 
+    def test_filter_mode_takes_a_select_option(self):
+        from django_pim.models import FeatureInFeatureSet, FeatureTypeEnum
+        from tests.factories import AttributeFactory, FeatureFactory, ProductAttributeFactory
+
+        channel = ChannelFactory(is_default=True)
+        feature_set = FeatureSetFactory()
+        check = FeatureFactory(idx="ra-check", feature_type=FeatureTypeEnum.SELECT)
+        FeatureInFeatureSet.objects.create(feature_set=feature_set, feature=check)
+        small = AttributeFactory(feature=check, idx="ra-small")
+        fine = AttributeFactory(feature=check, idx="ra-ok")
+        for sku, option in (("RA-1", small), ("RA-2", fine), ("RA-3", small)):
+            product = ProductFactory(shop=channel, real_product=RealProductFactory(sku=sku), feature_set=feature_set)
+            ProductAttributeFactory(product=product, feature=check, attribute=option)
+        spec = {
+            "mode": "filter",
+            "module": "pim",
+            "channel": channel.idx,
+            "filters": {"attribute_filters": {"ra-check": "ra-small"}},
+        }
+
+        assert sorted(enrichment_adapter.resolve_targets(spec)) == ["RA-1", "RA-3"]
+
+    def test_filter_mode_refuses_a_malformed_attribute_filter(self):
+        channel = ChannelFactory(is_default=True)
+        spec = {"mode": "filter", "module": "pim", "channel": channel.idx, "filters": {"attribute_filters": ["x"]}}
+
+        with pytest.raises(ValueError, match="attribute_filters"):
+            enrichment_adapter.resolve_targets(spec)
+
     def test_unknown_mode_raises(self):
         with pytest.raises(ValueError, match="unsupported scope mode"):
             enrichment_adapter.resolve_targets({"mode": "bogus", "module": "pim"})
@@ -1634,6 +1663,14 @@ class TestMainPictures:
         pages = [enrichment_adapter.main_pictures(channel=channel.idx, page=page) for page in (1, 2, 3)]
 
         assert [[row["subject_ref"] for row in rows] for rows in pages] == [["MP-P0", "MP-P1"], ["MP-P2"], []]
+
+    def test_pictures_by_sha1_are_the_checked_files(self):
+        channel = ChannelFactory(is_default=True)
+        _make_bare_product(channel=channel, sku="MS-6")
+        link = _link(channel, "MS-6", color="red", role="main")
+        sha1 = link.picture.sha1
+
+        assert enrichment_adapter.pictures_by_sha1(sha1s=[sha1, "0" * 40]) == {sha1: link.picture.image.url}
 
     def test_a_main_picture_without_a_file_is_not_listed(self):
         channel = ChannelFactory(is_default=True)
