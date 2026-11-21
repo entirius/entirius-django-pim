@@ -52,7 +52,8 @@ anchor (`current_snapshot.sha1`). Video has no replace target in PIM — add onl
 Optional callables for the AI workers: `build_context` (compact product facts for a prompt),
 `main_picture` (bytes + mime of the main picture, input for the video kind), `list_pictures` / `picture`
 (the product's pictures to choose from, and one of them by ref, for the video and image kinds), `main_pictures` (a
-page of the channel's main pictures with sha1 and size, for the comfy kind's spawn) and the field catalog
+page of the channel's main pictures with sha1 and size, for the comfy kind's spawn), `pictures_by_sha1` (the
+thumbnails of the files the comfy kind checked) and the field catalog
 `describe_fields` / `channel_languages` / `make_locator` / `field_key` (writable text and select features),
 and `category_of` (the product's first category as a memory ref, so category-scoped SEO briefs are shared).
 
@@ -186,7 +187,9 @@ _CATEGORY_REF_PREFIX = "category:"
 
 # list_products kwargs an external scope may drive. Anything else in `filters` is ignored rather
 # than passed through (avoids a worker injecting arbitrary kwargs).
-_ALLOWED_FILTERS = frozenset({"search", "is_enabled", "visibility", "product_class", "category_idx", "has_media"})
+_ALLOWED_FILTERS = frozenset(
+    {"search", "is_enabled", "visibility", "product_class", "category_idx", "has_media", "attribute_filters"}
+)
 
 
 def _locator(target_locator: dict) -> tuple[str, str, str]:
@@ -1062,6 +1065,13 @@ def main_pictures(*, channel: str, page: int = 1) -> list[dict]:
     return [rows[pk] for pk in skus if pk in rows]
 
 
+def pictures_by_sha1(*, sha1s: list[str]) -> dict[str, str]:
+    """`{sha1: url}` of the pictures stored with these sha1s — a thumbnail of the very file a picture-checking worker
+    saw, even after the product got another one. A sha1 no picture has (deleted since) is left out."""
+    rows = Picture.objects.filter(sha1__in=sha1s).exclude(image="")
+    return {picture.sha1: picture.image.url for picture in rows}
+
+
 def _main_picture_row(sku: str, link: ProductPicture) -> dict:
     picture = link.picture
     return {
@@ -1320,9 +1330,18 @@ def resolve_targets(scope_spec: dict, page: int = 1) -> list:
     if mode == "filter":
         channel_idx = scope_spec["channel"]
         filters = {k: v for k, v in (scope_spec.get("filters") or {}).items() if k in _ALLOWED_FILTERS}
+        _check_attribute_filters(filters.get("attribute_filters"))
         qs = product_service.list_products(channel_idx, **filters)
         return [p.real_product.sku for p in qs[offset : offset + _PAGE_SIZE]]
     raise ValueError(f"unsupported scope mode for pim adapter: {mode!r}")
+
+
+def _check_attribute_filters(value: object) -> None:
+    """`{feature_idx: attribute_idx}` (a select feature's option), as the product grid filters; anything else raises."""
+    if value is None:
+        return
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise ValueError("filters.attribute_filters must map feature idx to option idx (strings)")
 
 
 def find_gaps(check: str, params: dict, scope: dict) -> list[dict]:  # noqa: ARG001 — params reserved by the contract
