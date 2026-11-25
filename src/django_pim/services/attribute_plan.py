@@ -11,9 +11,9 @@ the check sees exactly what the write step will store.
 """
 
 from dataclasses import dataclass, field
-from decimal import Decimal
 
 from ..models import Attribute, Feature, FeatureTypeEnum, Product, ProductAttribute
+from ..validators import parse_optional_decimal
 from .gap_check_registry import _is_empty
 
 _SELECT_TYPES = (FeatureTypeEnum.SELECT, FeatureTypeEnum.MULTISELECT)
@@ -55,8 +55,8 @@ class AttributePlan:
 def has_attribute_value(attr_data: dict, feature_type: int) -> bool:
     """Check if the attribute data carries a value for the given type.
 
-    For SELECT/MULTISELECT, key presence means "process this" (even if null/empty
-    — that signals deletion). For other types, an explicit None means "set".
+    For SELECT/MULTISELECT and the decimal types, key presence means "process this" (even if
+    null/empty — that signals deletion). For other types, an explicit None means "set".
     """
     if feature_type == FeatureTypeEnum.MULTISELECT:
         return "attribute_idxs" in attr_data
@@ -65,7 +65,7 @@ def has_attribute_value(attr_data: dict, feature_type: int) -> bool:
     if feature_type == FeatureTypeEnum.BOOL:
         return attr_data.get("value_bool") is not None
     if feature_type in _DECIMAL_TYPES:
-        return attr_data.get("value_decimal") is not None
+        return "value_decimal" in attr_data
     if feature_type in _TEXT_TYPES:
         return attr_data.get("value_txt") is not None
     if feature_type in _T9N_TYPES:
@@ -98,7 +98,7 @@ def _scalar_row(feature: Feature, attr_data: dict) -> dict:
     if feature_type == FeatureTypeEnum.BOOL:
         row["value_bool"] = attr_data.get("value_bool")
     elif feature_type in _DECIMAL_TYPES:
-        row["value_decimal"] = Decimal(str(attr_data["value_decimal"]))
+        row["value_decimal"] = parse_optional_decimal(attr_data["value_decimal"], feature.idx)
     elif feature_type in _TEXT_TYPES:
         row["value_txt"] = attr_data["value_txt"]
     elif feature_type in _T9N_TYPES:
@@ -148,7 +148,8 @@ def plan_product_attributes(attributes: list[dict]) -> AttributePlan:
     options = _load_options(inputs)
     for attr_data, feature in inputs:
         if feature.feature_type not in _SELECT_TYPES:
-            plan.planned.append(PlannedFeature(feature, [_scalar_row(feature, attr_data)]))
+            row = _scalar_row(feature, attr_data)
+            plan.planned.append(PlannedFeature(feature, [] if row.get("value_decimal", 0) is None else [row]))
             continue
         rows = []
         for idx in _requested_option_idxs(attr_data, feature):

@@ -9,8 +9,6 @@ This module contains business logic for product operations,
 isolated from API and model layers.
 """
 
-from decimal import Decimal
-
 from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
@@ -29,6 +27,7 @@ from ..models import (
     RealProduct,
 )
 from ..settings import SYSTEM_FEATURE_NAME_IDX, T9N_DEFAULT_LANG
+from ..validators import parse_optional_decimal
 from .attribute_plan import AttributePlan, plan_product_attributes, write_planned_attributes
 from .attribute_service import resolve_attribute_name
 from .channel_service import get_default_channel
@@ -348,10 +347,10 @@ def create_product(
         defaults={
             "ean": ean or "",
             "kind_of_product": kind_of_product,
-            "weight": Decimal(weight) if weight else None,
-            "width": Decimal(width) if width else None,
-            "height": Decimal(height) if height else None,
-            "deep": Decimal(deep) if deep else None,
+            "weight": parse_optional_decimal(weight, "weight"),
+            "width": parse_optional_decimal(width, "width"),
+            "height": parse_optional_decimal(height, "height"),
+            "deep": parse_optional_decimal(deep, "deep"),
         },
     )
 
@@ -379,8 +378,8 @@ def _update_real_product_fields(real_product: RealProduct, fields: dict) -> bool
         if field_name not in fields:
             continue
         value = fields[field_name]
-        if value is not None and field_name in ("weight", "width", "height", "deep"):
-            value = Decimal(str(value))
+        if field_name in ("weight", "width", "height", "deep"):
+            value = parse_optional_decimal(value, field_name)
         setattr(real_product, field_name, value)
         changed = True
     if changed:

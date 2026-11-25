@@ -12,6 +12,7 @@ leaves as an ``InvalidRequestError`` (a 400 with that text) instead of a bare ``
 """
 
 from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 
 import idx_normalizator
 
@@ -100,3 +101,19 @@ def validate_sku(sku: str) -> None:
 
 def validate_ean(ean: str | None) -> None:
     _as_refusal(idx_normalizator.validate_ean, ean)
+
+
+def parse_optional_decimal(raw: object, label: str) -> Decimal | None:
+    """Decimal from a request value; ``None``, ``""`` and whitespace mean "no value" (``None``).
+
+    Anything that is not a finite number is an ``InvalidRequestError`` (400), never an ``InvalidOperation`` (500).
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        value = Decimal(str(raw).strip())
+    except InvalidOperation:
+        raise InvalidRequestError(f"'{label}' must be a number, got {str(raw)[:40]!r}") from None
+    if not value.is_finite():
+        raise InvalidRequestError(f"'{label}' must be a finite number")
+    return value

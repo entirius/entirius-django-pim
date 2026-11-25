@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Product create/update: a cleared DECIMAL-type attribute (`value_decimal` null, `""` or blanks) means "no value" — the row
+  is not created and an update removes the stored one; a value that is not a finite number (also a product's
+  weight/width/height/deep) is a 400 instead of a 500.
+
 ## 3.10.0 — 2026-11-21
 
 ### Added

@@ -265,7 +265,7 @@ All product endpoints are channel-scoped. Path parameter `{channel_idx}` is alwa
 |-------|------|-------------|-------------|
 | `feature_idx` | `str` | required, min 1 | Feature to set value for |
 | `value_bool` | `bool\|null` | optional | For BOOL features |
-| `value_decimal` | `str\|null` | optional | For DECIMAL/TEMPERATURE/LENGTH/MASS features. Decimal as string |
+| `value_decimal` | `str\|null` | optional | For DECIMAL/TEMPERATURE/LENGTH/MASS features. Decimal as string; `null`, `""` or blanks clear the stored value (key absent = untouched); not a number = 400 |
 | `value_txt` | `str\|null` | optional | For VARCHAR255/TEXT features |
 | `value_txt_t9n` | `dict\|null` | optional | For T9N features. e.g. `{"en": "Red", "pl": "Czerwony"}` |
 | `value_json` | `dict\|null` | optional | For JSON features |
