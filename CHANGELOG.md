@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Product create: a product without a `url_key` gets `slug(name)-slug(sku)` per language that has a name, unique in
+  the channel (`-2`, `-3`… on collision); a given key is never overwritten. Without it the storefront page said
+  "product not found".
+- Add to channel with `copy_content`: the system features of the source (`url_key`, `meta_title`, …) are copied too,
+  not only the ones the new product already carried; a `url_key` taken in the target channel gets a suffix.
+
+### Added
+
+- Management command `pim_fill_url_keys` fills the missing product `url_key`s (dry-run by default, `--apply`
+  writes, `--channel` narrows).
+
 ## 3.10.0 — 2026-11-21
 
 ### Added

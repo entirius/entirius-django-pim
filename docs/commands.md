@@ -132,3 +132,21 @@ The last line is a summary: `Thumbnails: generated N, already present N, failed 
 The command exits non-zero when `THUMBS_CONFIG` is not set, when it found no pictures, or when every
 thumbnail it tried failed. A run where only some thumbnails fail still exits 0; read the `failed` count.
 With `--missing-only` and nothing missing it exits 0 and says so. The resizer creates `TMP_DIR` when it is absent.
+
+
+---
+
+## pim_fill_url_keys
+
+Fill the missing product `url_key`. The storefront opens a product page by it, so a product without one is found by
+search and then "not found". A key is `slug(name)-slug(sku)` for every language that has a name, unique within the
+channel for that language (`-2`, `-3`… on collision). A key that is already set is never changed, so a second run
+finds nothing. Product create and add-to-channel with `copy_content` apply the same rule.
+
+```bash
+python manage.py pim_fill_url_keys                              # preview, every channel
+python manage.py pim_fill_url_keys --channel=default-europe     # one channel
+python manage.py pim_fill_url_keys --apply                      # write
+```
+
+Prints one `channel  sku  lang  key` line per key and a count. Without `--apply` nothing is written.

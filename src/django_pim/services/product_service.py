@@ -39,6 +39,7 @@ from .inheritance_service import get_default_product_for
 from .lookup_provider import enqueue_refresh as _enqueue_lookup_refresh
 from .lookup_provider import touch_real_product as _touch_real_product
 from .lookup_provider import touch_real_products as _touch_real_products
+from .url_key_service import add_generated_url_key
 
 # Maps API ordering params to actual DB field paths.
 ORDERING_MAP: dict[str, str] = {
@@ -338,6 +339,7 @@ def create_product(
         raise InvalidRequestError(f"Product with SKU '{sku}' already exists in channel '{channel_idx}'")
 
     plan = plan_product_attributes(attributes or [])
+    add_generated_url_key(plan, channel, sku)
     if _flag(strict, STRICT_CREATE_SETTING):
         _refuse_unresolved(plan, channel, category_idxs or [])
     if _flag(enforce_required, ENFORCE_REQUIRED_SETTING):

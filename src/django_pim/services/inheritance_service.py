@@ -34,6 +34,7 @@ from ..models import (
 )
 from ..models.feature_set import FeatureInFeatureSet
 from ..settings import DESCRIPTION_FEATURE_IDXS
+from .url_key_service import dedupe_url_keys
 
 
 def get_default_product_for(product: Product, default_channel: Channel | None = None) -> Product | None:
@@ -64,6 +65,7 @@ def _get_feature_intersection(
     target_feature_set: FeatureSet,
     source_product: Product | None = None,
     target_product: Product | None = None,
+    all_source_system: bool = False,
 ) -> set[int]:
     """Get feature PKs present in both feature sets, plus system features on both products.
 
@@ -89,7 +91,7 @@ def _get_feature_intersection(
                 "feature_id", flat=True
             )
         )
-        if target_product is not None:
+        if target_product is not None and not all_source_system:
             target_system = set(
                 ProductAttribute.objects.filter(
                     product=target_product, feature__scope=FeatureScopeEnum.SYSTEM
@@ -496,11 +498,19 @@ def _enqueue_gap_recompute_for_children(product_pks: list[int]) -> None:
 
 
 @transaction.atomic
-def copy_translations(source_product: Product, target_product: Product, languages: list[str] | None = None) -> int:
+def copy_translations(
+    source_product: Product,
+    target_product: Product,
+    languages: list[str] | None = None,
+    all_source_system: bool = False,
+) -> int:
     """One-time copy of translations from source to target product.
 
     Copies values AND marks copied languages as overridden
     (since this is an explicit user action, not ongoing inheritance).
+
+    System features are copied only when both products already carry them; ``all_source_system=True`` copies
+    every system feature of the source (for a brand-new target with the source's own feature set).
 
     Raises:
         ValueError: If source and target are on the same channel.
@@ -515,6 +525,7 @@ def copy_translations(source_product: Product, target_product: Product, language
         target_product.feature_set,
         source_product=source_product,
         target_product=target_product,
+        all_source_system=all_source_system,
     )
     if not common_features:
         return 0
@@ -620,7 +631,8 @@ def add_product_to_channel(
     )
 
     if copy_content:
-        copy_translations(source_product, new_product)
+        copy_translations(source_product, new_product, all_source_system=True)
+        dedupe_url_keys(new_product)
 
     if not copy_content and (inherit_attributes or inherit_descriptions):
         materialize_inherited_values(new_product)
