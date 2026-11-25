@@ -166,8 +166,34 @@ class TestAddToChannel:
         assert response.status_code == 201, response.content
         assert response.json()["url_key_t9n"] == {"en": "big-chair", "pl": "duze"}
 
-    def test_without_copy_content_nothing_is_copied(self, source, channel_b):
-        assert _url_keys(add_product_to_channel(source, "uk-b")) == {}
+    def test_nothing_ticked_still_gets_the_url_key(self, source, channel_b):
+        new = add_product_to_channel(source, "uk-b")
+
+        assert _url_keys(new) == {"en": "big-chair", "pl": "duze"}
+        assert not ProductAttribute.objects.filter(product=new, feature__idx="name").exists()
+        row = ProductAttribute.objects.get(product=new, feature__idx="url_key")
+        assert row.overridden_langs == ["en", "pl"]
+
+    def test_inherit_flags_only_still_gets_the_url_key(self, source, channel_b):
+        new = add_product_to_channel(source, "uk-b", inherit_attributes=True, inherit_descriptions=True)
+
+        assert _url_keys(new) == {"en": "big-chair", "pl": "duze"}
+
+    def test_collision_without_copy_content_gets_a_suffix(self, source, channel_b, name_feature, url_key_feature):
+        _stored_product(channel_b, "TAKEN", None, name_feature, {"pl": "duze"}, url_key_feature)
+
+        new = add_product_to_channel(source, "uk-b")
+
+        assert _url_keys(new) == {"en": "big-chair", "pl": "duze-2"}
+
+    def test_source_without_url_key_adds_nothing(
+        self, channel_a, channel_b, feature_set, name_feature, url_key_feature
+    ):
+        bare = _stored_product(channel_a, "BARE", NAME, name_feature)
+        bare.feature_set = feature_set
+        bare.save()
+
+        assert _url_keys(add_product_to_channel(bare, "uk-b")) == {}
 
     def test_plain_copy_translations_keeps_the_both_sides_guard(self, source, channel_b, feature_set):
         """A target that carries no system feature of its own does not get them from copy_translations."""

@@ -126,3 +126,30 @@ def dedupe_url_keys(product: Product) -> dict[str, str]:
         key_row.value_txt_t9n = {**keys, **changed}
         key_row.save()
     return changed
+
+
+def copy_missing_url_keys(source: Product, target: Product) -> dict[str, str]:
+    """Add-to-channel: give ``target`` the source's url_key of every language it has none for, then dedupe.
+
+    Same row shape as ``copy_translations`` makes (copied languages marked overridden). Runs for every
+    add-to-channel path, so a product added without ``copy_content`` is not left without a page.
+    """
+    source_row = ProductAttribute.objects.filter(
+        product=source, feature__idx=SYSTEM_FEATURE_URL_KEY_IDX, feature__scope=FeatureScopeEnum.SYSTEM
+    ).first()
+    if source_row is None:
+        return {}
+    target_row = ProductAttribute.objects.filter(product=target, feature=source_row.feature).first()
+    existing = dict(target_row.value_txt_t9n or {}) if target_row else {}
+    copied = {
+        lang: key
+        for lang, key in (source_row.value_txt_t9n or {}).items()
+        if not _is_blank(key) and _is_blank(existing.get(lang))
+    }
+    if copied:
+        target_row = target_row or ProductAttribute(product=target, feature=source_row.feature)
+        target_row.value_txt_t9n = {**existing, **copied}
+        target_row.overridden_langs = sorted(set(target_row.overridden_langs or []) | set(copied))
+        target_row.save()
+    dedupe_url_keys(target)
+    return copied

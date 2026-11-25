@@ -34,7 +34,7 @@ from ..models import (
 )
 from ..models.feature_set import FeatureInFeatureSet
 from ..settings import DESCRIPTION_FEATURE_IDXS
-from .url_key_service import dedupe_url_keys
+from .url_key_service import copy_missing_url_keys
 
 
 def get_default_product_for(product: Product, default_channel: Channel | None = None) -> Product | None:
@@ -632,7 +632,6 @@ def add_product_to_channel(
 
     if copy_content:
         copy_translations(source_product, new_product, all_source_system=True)
-        dedupe_url_keys(new_product)
 
     if not copy_content and (inherit_attributes or inherit_descriptions):
         materialize_inherited_values(new_product)
@@ -640,6 +639,7 @@ def add_product_to_channel(
     if inherit_images:
         materialize_inherited_media(new_product)
 
+    copy_missing_url_keys(source_product, new_product)
     return new_product
 
 
