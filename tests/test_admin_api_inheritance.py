@@ -23,6 +23,7 @@ from django_pim.models import (
     FeatureTypeEnum,
     Files,
     PictureRoleEnum,
+    Product,
     ProductAttribute,
     ProductFile,
     ProductPicture,
@@ -1304,6 +1305,146 @@ class TestAddToChannelEndpoint:
             format="json",
         )
         assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestAddToChannelCopyContentCombinations:
+    """copy_content together with the inherit flags, as the CMS "add to channel" dialog sends them."""
+
+    URL = f"{BASE_URL}/default-ch/products/INHERIT-001/add-to-channel/"
+
+    @pytest.fixture
+    def default_media(self, default_product, picture, video, files_obj):
+        ProductPicture.objects.create(
+            product=default_product, picture=picture, picture_role=PictureRoleEnum.MAIN, position=1
+        )
+        ProductVideo.objects.create(product=default_product, video=video, video_role=VideoRoleEnum.MAIN, position=1)
+        ProductFile.objects.create(product=default_product, file=files_obj)
+
+    def _add(self, client, **flags):
+        return client.post(self.URL, {"target_channel_idx": "secondary-ch", **flags}, format="json")
+
+    def _target(self) -> "Product":
+        return Product.objects.get(shop__idx="secondary-ch", real_product__sku="INHERIT-001")
+
+    def test_copy_content_with_inherit_images_copies_values_and_media(
+        self, authenticated_client, default_product, default_media, secondary_channel, features_in_set
+    ):
+        response = self._add(authenticated_client, copy_content=True, inherit_images=True)
+
+        assert response.status_code == 201, response.content
+        assert response.data["inherit_images"] is True
+        assert response.data["inherit_attributes"] is False
+        target = self._target()
+        name = ProductAttribute.objects.get(product=target, feature__idx="name")
+        assert name.value_txt_t9n == {"en": "Chair", "pl": "Krzeslo"}
+        assert ProductAttribute.objects.get(product=target, feature__idx="test-bool").value_bool is True
+        assert ProductPicture.objects.filter(product=target, is_inherited=True).count() == 1
+        assert ProductVideo.objects.filter(product=target, is_inherited=True).count() == 1
+        assert ProductFile.objects.filter(product=target, is_inherited=True).count() == 1
+
+    def test_copy_content_without_inherit_images_copies_no_media(
+        self, authenticated_client, default_product, default_media, secondary_channel, features_in_set
+    ):
+        response = self._add(authenticated_client, copy_content=True)
+
+        assert response.status_code == 201, response.content
+        target = self._target()
+        assert ProductAttribute.objects.filter(product=target, feature__idx="name").exists()
+        assert not ProductPicture.objects.filter(product=target).exists()
+
+    def test_inherit_images_alone_copies_media_but_no_values(
+        self, authenticated_client, default_product, default_media, secondary_channel, features_in_set
+    ):
+        response = self._add(authenticated_client, inherit_images=True)
+
+        assert response.status_code == 201, response.content
+        target = self._target()
+        assert ProductPicture.objects.filter(product=target, is_inherited=True).count() == 1
+        assert not ProductAttribute.objects.filter(product=target).exists()
+
+    def test_copy_content_with_all_three_flags(
+        self, authenticated_client, default_product, default_media, secondary_channel, features_in_set
+    ):
+        response = self._add(
+            authenticated_client,
+            copy_content=True,
+            inherit_attributes=True,
+            inherit_descriptions=True,
+            inherit_images=True,
+        )
+
+        assert response.status_code == 201, response.content
+        assert (
+            response.data["inherit_attributes"],
+            response.data["inherit_descriptions"],
+            response.data["inherit_images"],
+        ) == (True, True, True)
+        target = self._target()
+        assert ProductAttribute.objects.filter(product=target, feature__idx="name").exists()
+        assert ProductAttribute.objects.filter(product=target, feature__idx="description").exists()
+        assert ProductPicture.objects.filter(product=target, is_inherited=True).count() == 1
+
+    def test_copied_values_are_overridden_so_the_default_does_not_overwrite_them(
+        self, authenticated_client, default_product, secondary_channel, features_in_set
+    ):
+        """copy_content = "take a snapshot and own it": flags on, but every copied value is marked overridden."""
+        self._add(authenticated_client, copy_content=True, inherit_attributes=True, inherit_descriptions=True)
+        target = self._target()
+        name = ProductAttribute.objects.get(product=target, feature__idx="name")
+        assert sorted(name.overridden_langs) == ["en", "pl"]
+        assert ProductAttribute.objects.get(product=target, feature__idx="test-bool").overridden_langs == ["*"]
+
+        default_name = ProductAttribute.objects.get(product=default_product, feature__idx="name")
+        default_name.value_txt_t9n = {"en": "Armchair", "pl": "Fotel"}
+        default_name.save()
+        default_bool = ProductAttribute.objects.get(product=default_product, feature__idx="test-bool")
+        default_bool.value_bool = False
+        default_bool.save()
+        propagate_to_inheriting_products(default_product)
+
+        name.refresh_from_db()
+        assert name.value_txt_t9n == {"en": "Chair", "pl": "Krzeslo"}
+        assert ProductAttribute.objects.get(product=target, feature__idx="test-bool").value_bool is True
+
+    def test_inherit_without_copy_content_materializes_and_keeps_following_the_default(
+        self, authenticated_client, default_product, secondary_channel, features_in_set
+    ):
+        self._add(authenticated_client, inherit_attributes=True, inherit_descriptions=True)
+        target = self._target()
+        name = ProductAttribute.objects.get(product=target, feature__idx="name")
+        assert name.overridden_langs == []
+
+        default_name = ProductAttribute.objects.get(product=default_product, feature__idx="name")
+        default_name.value_txt_t9n = {"en": "Armchair", "pl": "Fotel"}
+        default_name.save()
+        propagate_to_inheriting_products(default_product)
+
+        name.refresh_from_db()
+        assert name.value_txt_t9n == {"en": "Armchair", "pl": "Fotel"}
+
+    def test_channel_with_inheritance_disabled_gets_the_flags_but_no_media(
+        self, authenticated_client, default_product, default_media, secondary_channel, features_in_set
+    ):
+        """Media inheritance needs Channel.inheritance_enabled on the target: the CMS reads it from GET channels/."""
+        secondary_channel.inheritance_enabled = False
+        secondary_channel.save()
+
+        response = self._add(authenticated_client, copy_content=True, inherit_images=True)
+
+        assert response.status_code == 201, response.content
+        assert response.data["inherit_images"] is True
+        assert not ProductPicture.objects.filter(product=self._target()).exists()
+        assert ProductAttribute.objects.filter(product=self._target(), feature__idx="name").exists()
+
+    def test_channels_endpoint_exposes_what_the_dialog_needs(self, authenticated_client, secondary_channel):
+        response = authenticated_client.get(f"{BASE_URL}/channels/")
+
+        assert response.status_code == 200
+        by_idx = {c["idx"]: c for c in response.json()["results"]}
+        assert by_idx["secondary-ch"]["inheritance_enabled"] is True
+        assert by_idx["secondary-ch"]["is_default"] is False
+        assert "default_inheritance_flags" in by_idx["secondary-ch"]
 
 
 @pytest.mark.django_db
