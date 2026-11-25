@@ -33,8 +33,13 @@ from ..models import (
     ProductVideo,
 )
 from ..models.feature_set import FeatureInFeatureSet
-from ..settings import DESCRIPTION_FEATURE_IDXS
-from .url_key_service import copy_missing_url_keys
+from ..settings import DESCRIPTION_FEATURE_IDXS, SYSTEM_FEATURE_URL_KEY_IDX
+from .url_key_service import (
+    copy_missing_url_keys,
+    dedupe_url_keys,
+    lock_url_keys,
+    settle_inherited_url_keys,
+)
 
 
 def get_default_product_for(product: Product, default_channel: Channel | None = None) -> Product | None:
@@ -181,6 +186,7 @@ _BULK_VALUE_FIELDS = [
 ]
 
 
+@transaction.atomic
 def _materialize_features_inner(
     product: Product,
     default_product: Product,
@@ -235,10 +241,12 @@ def _materialize_features_inner(
             if _is_t9n_type(source_attr.feature.feature_type):
                 source_t9n = source_attr.value_txt_t9n or {}
                 target_t9n = target_attr.value_txt_t9n or {}
-                for lang, value in source_t9n.items():
-                    if lang not in overridden:
-                        target_t9n[lang] = value
+                inherited_langs = [lang for lang in source_t9n if lang not in overridden]
+                for lang in inherited_langs:
+                    target_t9n[lang] = source_t9n[lang]
                 target_attr.value_txt_t9n = target_t9n
+                if feature.idx == SYSTEM_FEATURE_URL_KEY_IDX and feature.scope == FeatureScopeEnum.SYSTEM:
+                    settle_inherited_url_keys(product, target_attr, inherited_langs)
             else:
                 if not overridden:
                     _apply_attribute_value(source_attr, target_attr)
@@ -430,6 +438,7 @@ def propagate_to_inheriting_products(default_product: Product, updated_feature_i
         .filter(Q(inherit_attributes=True) | Q(inherit_descriptions=True) | Q(inherit_images=True))
         .exclude(shop=default_product.shop)
         .select_related("real_product", "shop", "feature_set")
+        .order_by("shop_id")  # url_key locks are taken channel by channel: one fixed order, no deadlock
     )
 
     # Resolve feature PKs once if filtering by idx
@@ -520,6 +529,7 @@ def copy_translations(
     if source_product.shop_id == target_product.shop_id:
         raise InvalidRequestError("Source and target channels cannot be the same")
 
+    lock_url_keys(target_product.shop)
     common_features = _get_feature_intersection(
         source_product.feature_set,
         target_product.feature_set,
@@ -589,6 +599,7 @@ def copy_translations(
         target_attr.save()
         copied += 1
 
+    dedupe_url_keys(target_product)
     return copied
 
 
@@ -612,6 +623,7 @@ def add_product_to_channel(
         ValueError: If product already exists on target channel.
     """
     target_channel = Channel.objects.get(idx=target_channel_idx)
+    lock_url_keys(target_channel)
 
     if Product.objects.filter(shop=target_channel, real_product=source_product.real_product).exists():
         raise InvalidRequestError(
@@ -686,6 +698,10 @@ def toggle_language_override(product: Product, feature_idx: str, language: str, 
                     attr.value_txt_t9n = target_t9n
 
     attr.overridden_langs = sorted(overridden)
+    if not override and feature.idx == SYSTEM_FEATURE_URL_KEY_IDX and feature.scope == FeatureScopeEnum.SYSTEM:
+        settle_inherited_url_keys(
+            product, attr, [language]
+        )  # the re-inherited key may be taken: suffix, stay overridden
     attr.save()
     return attr
 

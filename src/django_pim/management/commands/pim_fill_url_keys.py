@@ -6,7 +6,9 @@
 
 A key is ``slug(name)-slug(sku)`` per language that has a name, unique within the channel for that language
 (``-2``, ``-3``… on collision). A key that is already set is never changed, so a second run finds nothing.
-Dry-run by default.
+Dry-run by default: the keys it would set are reserved in memory, so the preview is what ``--apply`` writes.
+Existing keys are never rewritten (live URLs). A read-only report of the duplicate keys already there (channel,
+language, key, SKUs) is printed every run; it does not change the exit code.
 
 Usage:
   python manage.py pim_fill_url_keys                       # preview, every channel
@@ -37,8 +39,9 @@ class Command(BaseCommand):
             products = products.filter(shop__idx=channel_idx)
 
         products_changed = keys_set = 0
+        reserved: set = set()
         for product in products.select_related("shop", "real_product").order_by("pk").iterator():
-            generated = url_key_service.fill_missing_url_key(product, apply=apply)
+            generated = url_key_service.fill_missing_url_key(product, apply=apply, reserved=reserved)
             for lang, key in sorted(generated.items()):
                 self.stdout.write(f"{product.shop.idx}\t{product.sku}\t{lang}\t{key}")
             products_changed += bool(generated)
@@ -48,3 +51,10 @@ class Command(BaseCommand):
         self.stdout.write(f"{verb} {keys_set} url_key value(s) on {products_changed} product(s).")
         if not apply and keys_set:
             self.stdout.write("Dry run: nothing written. Add --apply to write.")
+        self._report_duplicates(options["channel"])
+
+    def _report_duplicates(self, channel_idx: str | None) -> None:
+        duplicates = url_key_service.find_duplicate_url_keys(channel_idx)
+        for channel, lang, key, skus in duplicates:
+            self.stdout.write(f"DUPLICATE\t{channel}\t{lang}\t{key}\t{', '.join(skus)}")
+        self.stdout.write(f"Duplicate url_key(s) already stored: {len(duplicates)} (listed only, none changed).")

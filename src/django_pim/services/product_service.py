@@ -39,7 +39,7 @@ from .inheritance_service import get_default_product_for
 from .lookup_provider import enqueue_refresh as _enqueue_lookup_refresh
 from .lookup_provider import touch_real_product as _touch_real_product
 from .lookup_provider import touch_real_products as _touch_real_products
-from .url_key_service import add_generated_url_key
+from .url_key_service import add_generated_url_key, guard_changed_url_keys
 
 # Maps API ordering params to actual DB field paths.
 ORDERING_MAP: dict[str, str] = {
@@ -243,7 +243,9 @@ def _set_product_attributes(product: Product, attributes: list[dict]) -> None:
     attribute count; see ``attribute_plan``. bulk_create skips post_save signals — callers must
     trigger Matrix sync explicitly when needed (see update_product).
     """
-    write_planned_attributes(product, plan_product_attributes(attributes))
+    plan = plan_product_attributes(attributes)
+    guard_changed_url_keys(plan, product)
+    write_planned_attributes(product, plan)
 
 
 def _set_product_categories(product: Product, channel: Channel, category_idxs: list[str]) -> None:
@@ -458,7 +460,9 @@ def update_product(channel_idx: str, sku: str, **fields) -> Product:
     """
     channel = Channel.objects.get(idx=channel_idx)
     product = (
-        Product.objects.filter(shop=channel, real_product__sku=sku).select_related("real_product", "feature_set").get()
+        Product.objects.filter(shop=channel, real_product__sku=sku)
+        .select_related("real_product", "feature_set", "shop")
+        .get()
     )
 
     rp_changed = _update_real_product_fields(product.real_product, fields)

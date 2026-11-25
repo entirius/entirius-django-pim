@@ -4,17 +4,20 @@
 
 ### Fixed
 
-- Product create: a product without a `url_key` gets `slug(name)-slug(sku)` per language that has a name, unique in
-  the channel (`-2`, `-3`… on collision); a given key is never overwritten. Without it the storefront page said
-  "product not found".
+- Product `url_key` never duplicates inside a channel (the storefront matches it exactly). Create sets
+  `slug(name)-slug(sku)` per language that has a name (`-2`, `-3`… on collision, within the length limit); a given
+  key is never overwritten, and a given key another product of the channel already has is a 400 naming the language
+  and the SKU (an unchanged key is not re-checked). Keys that arrive by copy or inheritance (add-to-channel,
+  copy-attributes, propagation, switching a language back to inherited) are suffixed when taken and stay overridden.
+  Writes take a per-channel advisory lock. A name change does not regenerate a key.
 - Add to channel: the new product gets the source's `url_key` on every path (also without `copy_content`); with
-  `copy_content` the system features of the source (`url_key`, `meta_title`, …) are copied too,
-  not only the ones the new product already carried; a `url_key` taken in the target channel gets a suffix.
+  `copy_content` the system features of the source (`url_key`, `meta_title`, …) are copied too, not only the ones the
+  new product already carried.
 
 ### Added
 
-- Management command `pim_fill_url_keys` fills the missing product `url_key`s (dry-run by default, `--apply`
-  writes, `--channel` narrows).
+- Management command `pim_fill_url_keys` fills the missing product `url_key`s (dry-run by default and exactly what
+  `--apply` writes, `--channel` narrows) and lists the duplicate keys already stored, without changing them.
 
 ## 3.10.0 — 2026-11-21
 
