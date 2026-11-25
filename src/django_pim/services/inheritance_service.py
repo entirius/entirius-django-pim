@@ -33,7 +33,13 @@ from ..models import (
     ProductVideo,
 )
 from ..models.feature_set import FeatureInFeatureSet
-from ..settings import DESCRIPTION_FEATURE_IDXS
+from ..settings import DESCRIPTION_FEATURE_IDXS, SYSTEM_FEATURE_URL_KEY_IDX
+from .url_key_service import (
+    copy_missing_url_keys,
+    dedupe_url_keys,
+    lock_url_keys,
+    settle_inherited_url_keys,
+)
 
 
 def get_default_product_for(product: Product, default_channel: Channel | None = None) -> Product | None:
@@ -64,6 +70,7 @@ def _get_feature_intersection(
     target_feature_set: FeatureSet,
     source_product: Product | None = None,
     target_product: Product | None = None,
+    all_source_system: bool = False,
 ) -> set[int]:
     """Get feature PKs present in both feature sets, plus system features on both products.
 
@@ -89,7 +96,7 @@ def _get_feature_intersection(
                 "feature_id", flat=True
             )
         )
-        if target_product is not None:
+        if target_product is not None and not all_source_system:
             target_system = set(
                 ProductAttribute.objects.filter(
                     product=target_product, feature__scope=FeatureScopeEnum.SYSTEM
@@ -179,6 +186,7 @@ _BULK_VALUE_FIELDS = [
 ]
 
 
+@transaction.atomic
 def _materialize_features_inner(
     product: Product,
     default_product: Product,
@@ -233,10 +241,12 @@ def _materialize_features_inner(
             if _is_t9n_type(source_attr.feature.feature_type):
                 source_t9n = source_attr.value_txt_t9n or {}
                 target_t9n = target_attr.value_txt_t9n or {}
-                for lang, value in source_t9n.items():
-                    if lang not in overridden:
-                        target_t9n[lang] = value
+                inherited_langs = [lang for lang in source_t9n if lang not in overridden]
+                for lang in inherited_langs:
+                    target_t9n[lang] = source_t9n[lang]
                 target_attr.value_txt_t9n = target_t9n
+                if feature.idx == SYSTEM_FEATURE_URL_KEY_IDX and feature.scope == FeatureScopeEnum.SYSTEM:
+                    settle_inherited_url_keys(product, target_attr, inherited_langs)
             else:
                 if not overridden:
                     _apply_attribute_value(source_attr, target_attr)
@@ -428,6 +438,7 @@ def propagate_to_inheriting_products(default_product: Product, updated_feature_i
         .filter(Q(inherit_attributes=True) | Q(inherit_descriptions=True) | Q(inherit_images=True))
         .exclude(shop=default_product.shop)
         .select_related("real_product", "shop", "feature_set")
+        .order_by("shop_id")  # url_key locks are taken channel by channel: one fixed order, no deadlock
     )
 
     # Resolve feature PKs once if filtering by idx
@@ -496,11 +507,19 @@ def _enqueue_gap_recompute_for_children(product_pks: list[int]) -> None:
 
 
 @transaction.atomic
-def copy_translations(source_product: Product, target_product: Product, languages: list[str] | None = None) -> int:
+def copy_translations(
+    source_product: Product,
+    target_product: Product,
+    languages: list[str] | None = None,
+    all_source_system: bool = False,
+) -> int:
     """One-time copy of translations from source to target product.
 
     Copies values AND marks copied languages as overridden
     (since this is an explicit user action, not ongoing inheritance).
+
+    System features are copied only when both products already carry them; ``all_source_system=True`` copies
+    every system feature of the source (for a brand-new target with the source's own feature set).
 
     Raises:
         ValueError: If source and target are on the same channel.
@@ -510,11 +529,13 @@ def copy_translations(source_product: Product, target_product: Product, language
     if source_product.shop_id == target_product.shop_id:
         raise InvalidRequestError("Source and target channels cannot be the same")
 
+    lock_url_keys(target_product.shop)
     common_features = _get_feature_intersection(
         source_product.feature_set,
         target_product.feature_set,
         source_product=source_product,
         target_product=target_product,
+        all_source_system=all_source_system,
     )
     if not common_features:
         return 0
@@ -578,6 +599,7 @@ def copy_translations(source_product: Product, target_product: Product, language
         target_attr.save()
         copied += 1
 
+    dedupe_url_keys(target_product)
     return copied
 
 
@@ -601,6 +623,7 @@ def add_product_to_channel(
         ValueError: If product already exists on target channel.
     """
     target_channel = Channel.objects.get(idx=target_channel_idx)
+    lock_url_keys(target_channel)
 
     if Product.objects.filter(shop=target_channel, real_product=source_product.real_product).exists():
         raise InvalidRequestError(
@@ -620,7 +643,7 @@ def add_product_to_channel(
     )
 
     if copy_content:
-        copy_translations(source_product, new_product)
+        copy_translations(source_product, new_product, all_source_system=True)
 
     if not copy_content and (inherit_attributes or inherit_descriptions):
         materialize_inherited_values(new_product)
@@ -628,6 +651,7 @@ def add_product_to_channel(
     if inherit_images:
         materialize_inherited_media(new_product)
 
+    copy_missing_url_keys(source_product, new_product)
     return new_product
 
 
@@ -674,6 +698,10 @@ def toggle_language_override(product: Product, feature_idx: str, language: str, 
                     attr.value_txt_t9n = target_t9n
 
     attr.overridden_langs = sorted(overridden)
+    if not override and feature.idx == SYSTEM_FEATURE_URL_KEY_IDX and feature.scope == FeatureScopeEnum.SYSTEM:
+        settle_inherited_url_keys(
+            product, attr, [language]
+        )  # the re-inherited key may be taken: suffix, stay overridden
     attr.save()
     return attr
 

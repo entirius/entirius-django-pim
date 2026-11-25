@@ -132,3 +132,37 @@ The last line is a summary: `Thumbnails: generated N, already present N, failed 
 The command exits non-zero when `THUMBS_CONFIG` is not set, when it found no pictures, or when every
 thumbnail it tried failed. A run where only some thumbnails fail still exits 0; read the `failed` count.
 With `--missing-only` and nothing missing it exits 0 and says so. The resizer creates `TMP_DIR` when it is absent.
+
+
+---
+
+## pim_fill_url_keys
+
+Fill the missing product `url_key`. The storefront opens a product page by it (matrix matches it exactly and has no
+unique constraint), so a product without one is "not found" and a duplicate opens the wrong product. A key is
+`slug(name)-slug(sku)` for every language that has a name, unique within the channel for that language (`-2`, `-3`…
+on collision, never longer than 200 characters). A key that is already set is never changed, so a second run finds
+nothing. Disabled and hidden products count as taken. Product create and add-to-channel apply the same rule.
+
+```bash
+python manage.py pim_fill_url_keys                              # preview, every channel
+python manage.py pim_fill_url_keys --channel=default-europe     # one channel
+python manage.py pim_fill_url_keys --apply                      # write
+```
+
+Prints one `channel  sku  lang  key` line per key and a count. Without `--apply` nothing is written; the preview
+reserves the keys it picks, so it is exactly what `--apply` writes. Every run ends with a read-only report of the
+duplicates already stored (`DUPLICATE  channel  lang  key  sku, sku`); it never rewrites them (live URLs) and does
+not change the exit code.
+
+Other rules the service enforces, in every write path:
+
+- A key a user gives (create, product edit) that another product of the channel already has for that language is a
+  400 naming the language and the SKU. An unchanged key is not re-checked, so an old duplicate does not block an
+  unrelated edit.
+- A key that arrives by copy or inheritance (add-to-channel, copy-attributes, propagation from the default channel,
+  switching a language back to inherited) is suffixed when taken and stays overridden, so the next propagation does
+  not turn it back into a duplicate.
+- A name change never regenerates a key (stable URLs).
+- Writes run under a per-channel advisory lock (`pg_advisory_xact_lock`), so concurrent writers cannot pick the
+  same key.
